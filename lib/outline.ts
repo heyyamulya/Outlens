@@ -220,22 +220,55 @@ function insidePixels(grid: Grid, frame: Frame): RGB[] {
 /**
  * Outline and inside pixels for the object under `tap` (frame coordinates).
  * Returns null when there is no clear object there, so the caller can fall back.
+ * `onReject` (optional) is told why, with a few numbers about the mask, for debugging.
  */
-export function outlineFromMask(mask: Mask, tap: Point, frame: Frame): OutlineResult | null {
+export function outlineFromMask(
+  mask: Mask,
+  tap: Point,
+  frame: Frame,
+  onReject?: (why: string) => void,
+): OutlineResult | null {
   const grid = toGrid(mask);
   const toGridX = grid.width / frame.width;
   const toGridY = grid.height / frame.height;
+  const pct = (fraction: number) => `${(fraction * 100).toFixed(2)}%`;
+  const describe = () => {
+    let max = 0;
+    let above = 0;
+    for (const v of mask.data) {
+      if (v > max) max = v;
+      if (v >= CONFIDENCE_THRESHOLD) above++;
+    }
+    const mx = Math.min(mask.width - 1, Math.floor((tap.x / frame.width) * mask.width));
+    const my = Math.min(mask.height - 1, Math.floor((tap.y / frame.height) * mask.height));
+    return (
+      `mask ${mask.width}x${mask.height}, frame ${frame.width}x${frame.height}, ` +
+      `confidence at tap ${mask.data[my * mask.width + mx].toFixed(2)}, max ${max.toFixed(2)}, ` +
+      `mask covers ${pct(above / mask.data.length)} of picture`
+    );
+  };
+
   const seed = findSeed(grid, tap.x * toGridX, tap.y * toGridY);
-  if (seed === null) return null;
+  if (seed === null) {
+    onReject?.(`nothing found at tap (${describe()})`);
+    return null;
+  }
 
   const { component, count } = floodFill(grid, seed);
   const areaFraction = count / (grid.width * grid.height);
-  if (areaFraction < MIN_AREA_FRACTION || areaFraction > MAX_AREA_FRACTION) return null;
+  if (areaFraction < MIN_AREA_FRACTION || areaFraction > MAX_AREA_FRACTION) {
+    const which = areaFraction < MIN_AREA_FRACTION ? "too small" : "too big";
+    onReject?.(`${which}: object is ${pct(areaFraction)} of picture (${describe()})`);
+    return null;
+  }
 
   const loops = traceLoops(component)
     .filter((loop) => loopArea(loop) >= MIN_LOOP_AREA)
     .map((loop) => simplifyClosed(loop, SIMPLIFY_TOLERANCE).map((p) => ({ x: p.x / toGridX, y: p.y / toGridY })));
-  if (loops.length === 0) return null;
+  if (loops.length === 0) {
+    onReject?.(`no usable edge (${describe()})`);
+    return null;
+  }
 
   return { loops, pixels: insidePixels(component, frame), areaFraction };
 }

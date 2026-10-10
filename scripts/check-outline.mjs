@@ -1,5 +1,6 @@
 // Quick check of mask-to-outline with made-up masks. Run: node scripts/check-outline.mjs
 import { estimateColor } from "../lib/color.ts";
+import { colorMaskAt } from "../lib/colorRegion.ts";
 import { outlineFromMask } from "../lib/outline.ts";
 
 const SIZE = 100;
@@ -78,6 +79,44 @@ const orange = [255, 165, 0];
   const r = outlineFromMask(makeMask(half, 50), { x: 50, y: 50 }, makeFrame(square, orange));
   const b = r && bounds(r.loops[0]);
   check("half-size mask scales up", b?.join() === "30,30,70,70", b && `bounds ${b}`);
+}
+
+
+// 6. Magic wand (colorMaskAt): outline from the picture's colors alone.
+{
+  const wand = (frame, tap) => outlineFromMask(colorMaskAt(frame, tap), tap, frame);
+
+  const flat = makeFrame(square, orange);
+  const r1 = wand(flat, { x: 50, y: 50 });
+  const b1 = r1 && bounds(r1.loops[0]);
+  check("wand: orange square on navy", r1 && r1.loops.length === 1 && b1.join() === "30,30,70,70", b1 && `bounds ${b1}`);
+
+  // Shading: the square gets darker toward the bottom; it should still be one object.
+  const shaded = makeFrame(square, orange);
+  for (let y = 30; y < 70; y++) {
+    const k = 1 - ((y - 30) / 40) * 0.35;
+    for (let x = 30; x < 70; x++) shaded.data.set([255 * k, 165 * k, 0, 255], (y * SIZE + x) * 4);
+  }
+  const r2 = wand(shaded, { x: 50, y: 35 });
+  const b2 = r2 && bounds(r2.loops[0]);
+  check("wand: shaded square stays whole", b2?.join() === "30,30,70,70", b2 && `bounds ${b2}`);
+
+  // Glare: a white spot inside is filled in, so there is no inner loop.
+  const glare = makeFrame(square, orange);
+  for (let y = 45; y < 52; y++) for (let x = 45; x < 52; x++) glare.data.set([255, 255, 255, 255], (y * SIZE + x) * 4);
+  const r3 = wand(glare, { x: 35, y: 35 });
+  check("wand: glare spot filled (1 loop)", r3?.loops.length === 1, r3 && `${r3.loops.length} loops`);
+
+  // Tapping the background selects most of the picture -> fallback.
+  check("wand: background tap -> fallback", wand(flat, { x: 5, y: 5 }) === null);
+
+  // Similar but different colors side by side: orange next to red stays separate.
+  const red = (x, y) => x >= 70 && x < 90 && y >= 30 && y < 70;
+  const twoColor = makeFrame(square, orange);
+  for (let y = 30; y < 70; y++) for (let x = 70; x < 90; x++) twoColor.data.set([200, 30, 30, 255], (y * SIZE + x) * 4);
+  const r4 = wand(twoColor, { x: 50, y: 50 });
+  const b4 = r4 && bounds(r4.loops[0]);
+  check("wand: orange stops at red", b4?.join() === "30,30,70,70", b4 && `bounds ${b4}`);
 }
 
 console.log(failures ? `\n${failures} difference(s)` : "\nAll checks match.");

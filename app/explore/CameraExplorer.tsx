@@ -5,15 +5,12 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 
 import { estimateColor, pixelsInCircle, type ColorEstimate } from "@/lib/color";
 import { coverView, drawShape, type Shape } from "@/lib/drawOutline";
 import { outlineFromMask, type Frame, type OutlineResult, type Point } from "@/lib/outline";
-import { loadSegmenter, segmentAt, type Segmenter } from "@/lib/segmenter";
+// Outlines come from the "magic wand" (colorMaskAt). The MediaPipe segmenter in
+// lib/segmenter.ts is switched off: in 1.0.1 its GPU mode returned empty masks and its
+// CPU mode took about 12 s per tap on a laptop.
+import { colorMaskAt } from "@/lib/colorRegion";
 
 type Status = "idle" | "starting" | "live" | "denied" | "no-camera" | "busy" | "unsupported" | "error";
-
-type ModelState =
-  | { kind: "idle" }
-  | { kind: "loading"; percent: number }
-  | { kind: "ready" }
-  | { kind: "fallback"; reason: string };
 
 type Reading = { point: Point; estimate: ColorEstimate }; // point in frame pixels
 
@@ -21,10 +18,6 @@ type Reading = { point: Point; estimate: ColorEstimate }; // point in frame pixe
 const SAMPLE_RADIUS_FRACTION = 0.02;
 // Radius of the fallback rounded shape, in screen pixels.
 const SIMPLE_SHAPE_RADIUS = 56;
-// A tap's outline step (not counting the once-per-frame prepare step) is "slow" above this.
-const SLOW_SEGMENT_MS = 2000;
-// After this many slow taps in a row (the first tap never counts), later taps use the simple shape.
-const SLOW_TAPS_BEFORE_FALLBACK = 2;
 
 const SAMPLE_SCENES_NOTE = "Sample scenes you can explore without a camera are coming in a later version.";
 
@@ -111,17 +104,14 @@ function sampleCircle(
   return estimateColor(pixelsInCircle(data, width, height, x - left, y - top, radius));
 }
 
-/** Waits until the browser has painted, so "Outlining…" shows before the segmenter blocks the page. */
+/** Waits until the browser has painted, so "Outlining…" shows before the outline work blocks the page. */
 function nextPaint() {
   return new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 }
 
-function chipText(model: ModelState, working: boolean, note: string | null): string | null {
+function chipText(working: boolean, note: string | null): string | null {
   if (working) return "Outlining…";
-  if (model.kind === "loading") return model.percent < 100 ? `Loading outline… ${model.percent}%` : "Preparing outline…";
-  if (model.kind === "fallback") return `Outline: simple shape (${model.reason})`;
   if (note) return `Simple shape: ${note}`;
-  if (model.kind === "ready") return "Outline ready";
   return null;
 }
 
@@ -134,16 +124,10 @@ export default function CameraExplorer() {
   const labelRef = useRef<HTMLDivElement>(null);
   const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const segmenterRef = useRef<Segmenter | null>(null);
-  const loadStartedRef = useRef(false);
   const frameRef = useRef<Frame | null>(null);
-  const imageSetRef = useRef(false);
   const workingRef = useRef(false);
-  const tapCountRef = useRef(0); // outline taps so far (the first one includes engine warm-up)
-  const slowTapsRef = useRef(0); // slow taps in a row
 
   const [status, setStatus] = useState<Status>("idle");
-  const [model, setModel] = useState<ModelState>({ kind: "idle" });
   const [frozen, setFrozen] = useState(false);
   const [working, setWorking] = useState(false);
   const [shape, setShape] = useState<Shape | null>(null);
@@ -195,24 +179,6 @@ export default function CameraExplorer() {
     return () => window.removeEventListener("resize", place);
   }, [shape, reading]);
 
-  function startModelLoad() {
-    if (loadStartedRef.current) return;
-    loadStartedRef.current = true;
-    setModel({ kind: "loading", percent: 0 });
-    loadSegmenter((fraction) => {
-      const percent = Math.floor(fraction * 100);
-      setModel((m) => (m.kind === "loading" && m.percent !== percent ? { kind: "loading", percent } : m));
-    })
-      .then((segmenter) => {
-        segmenterRef.current = segmenter;
-        setModel({ kind: "ready" });
-      })
-      .catch((err) => {
-        console.error(err);
-        setModel({ kind: "fallback", reason: "model unavailable" });
-      });
-  }
-
   async function startCamera() {
     if (!navigator.mediaDevices?.getUserMedia) {
       setStatus("unsupported");
@@ -228,7 +194,6 @@ export default function CameraExplorer() {
       stopStream(streamRef.current);
       streamRef.current = stream;
       setStatus("live");
-      startModelLoad();
     } catch (err) {
       setStatus(statusForError(err));
     }
@@ -247,7 +212,6 @@ export default function CameraExplorer() {
       frame = captureFrame(video, frameCanvas);
       if (!frame) return;
       frameRef.current = frame;
-      imageSetRef.current = false;
       setFrozen(true);
     }
     const rect = event.currentTarget.getBoundingClientRect();
@@ -261,31 +225,15 @@ export default function CameraExplorer() {
       await nextPaint();
 
       let result: OutlineResult | null = null;
-      const segmenter = segmenterRef.current;
-      if (segmenter) {
-        try {
-          const { mask, prepareMs, tapMs } = segmentAt(segmenter, frameCanvas, point, !imageSetRef.current);
-          imageSetRef.current = true;
-          console.info(
-            `Outline took ${Math.round(prepareMs + tapMs)} ms (prepare ${Math.round(prepareMs)}, tap ${Math.round(tapMs)})`,
-          );
-          result = outlineFromMask(mask, point, frame);
-          if (!result) setNote("no clear object at that spot");
-          // Judge speed by the per-tap step only, skip the very first tap (engine warm-up),
-          // and give up only after two slow taps in a row.
-          const isFirstTap = tapCountRef.current === 0;
-          tapCountRef.current += 1;
-          if (!isFirstTap && tapMs > SLOW_SEGMENT_MS) slowTapsRef.current += 1;
-          else slowTapsRef.current = 0;
-          if (slowTapsRef.current >= SLOW_TAPS_BEFORE_FALLBACK) {
-            segmenterRef.current = null;
-            setModel({ kind: "fallback", reason: "too slow on this device" });
-          }
-        } catch (err) {
-          console.error(err);
-          segmenterRef.current = null;
-          setModel({ kind: "fallback", reason: "outline failed" });
-        }
+      try {
+        const started = performance.now();
+        const mask = colorMaskAt(frame, point);
+        result = outlineFromMask(mask, point, frame, (why) => console.info(`No outline: ${why}`));
+        console.info(`Outline took ${Math.round(performance.now() - started)} ms`);
+        if (!result) setNote("no clear edge around that spot");
+      } catch (err) {
+        console.error(err);
+        setNote("outline failed");
       }
 
       const outlineEstimate = result ? estimateColor(result.pixels) : null;
@@ -301,8 +249,7 @@ export default function CameraExplorer() {
     } catch (err) {
       // Anything unexpected: say so in the chip and still show the simple shape for this tap.
       console.error(err);
-      segmenterRef.current = null;
-      setModel({ kind: "fallback", reason: "outline failed" });
+      setNote("outline failed");
       const view = coverView(rect.width, rect.height, frame.width, frame.height);
       setShape({ kind: "simple", center: point, radius: SIMPLE_SHAPE_RADIUS / view.scale });
     } finally {
@@ -314,7 +261,6 @@ export default function CameraExplorer() {
 
   function resume() {
     frameRef.current = null;
-    imageSetRef.current = false;
     const frameCanvas = frameCanvasRef.current;
     if (frameCanvas) {
       // Clears the frozen image from memory.
@@ -329,7 +275,7 @@ export default function CameraExplorer() {
 
   const live = status === "live";
   const message = status in MESSAGES ? MESSAGES[status as keyof typeof MESSAGES] : null;
-  const chip = chipText(model, working, note);
+  const chip = chipText(working, note);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#0E1624] text-lg text-white">
