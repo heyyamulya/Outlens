@@ -366,6 +366,8 @@ export default function CameraExplorer() {
     let lastTime = -1;
     let lastClean = 0;
     let wasPinched = false;
+    let pinchFrames = 0; // a pinch must hold for a few frames, so a passing hand doesn't select
+    let fired = false;
     loadHands()
       .then((hands) => {
         if (cancelled) return;
@@ -377,7 +379,8 @@ export default function CameraExplorer() {
             lastTime = video.currentTime;
             const hand = readHand(hands, video, wasPinched);
             const now = performance.now();
-            if (!hand.point) {
+            // Only point while the fingers are coming together; an open hand points at nothing.
+            if (!hand.point || hand.closeness < 0.4) {
               cursor.style.display = "none";
               if (!frameRef.current && now - lastClean > 300 && video.videoWidth) {
                 const clean = (cleanCanvasRef.current ??= document.createElement("canvas"));
@@ -395,7 +398,15 @@ export default function CameraExplorer() {
               cursor.style.left = `${x}px`;
               cursor.style.top = `${y}px`;
               cursor.style.backgroundColor = `rgba(245, 184, 65, ${0.15 + hand.closeness * 0.6})`;
-              if (hand.pinched && !wasPinched) selectAtRef.current?.(x, y, frameRef.current ? null : cleanCanvasRef.current);
+              pinchFrames = hand.pinched ? pinchFrames + 1 : 0;
+              if (pinchFrames >= 3 && !fired) {
+                fired = true;
+                selectAtRef.current?.(x, y, frameRef.current ? null : cleanCanvasRef.current);
+              }
+            }
+            if (!hand.pinched) {
+              pinchFrames = 0;
+              fired = false;
             }
             wasPinched = hand.pinched;
           }
@@ -665,7 +676,7 @@ export default function CameraExplorer() {
             ref={cursorRef}
             aria-hidden
             style={{ display: "none" }}
-            className="pointer-events-none fixed z-10 h-11 w-11 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-[#F5B841] shadow-[0_0_0_2px_rgba(14,22,36,0.7)]"
+            className="pointer-events-none fixed z-10 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#F5B841] shadow-[0_0_0_2px_rgba(14,22,36,0.7)]"
           />
 
           {reading && (
