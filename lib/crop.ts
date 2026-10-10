@@ -49,7 +49,7 @@ export function cropAround(frame: HTMLCanvasElement, points: Point[]): string | 
 export type ObjectInfo = { name: string; description: string | null };
 
 /** Asks our /api/describe route to name the object. Returns null on any failure. */
-export async function describeCrop(image: string, timeoutMs = 9000): Promise<ObjectInfo | null> {
+export async function describeCrop(image: string, timeoutMs = 20000): Promise<ObjectInfo | null> {
   try {
     const res = await fetch("/api/describe", {
       method: "POST",

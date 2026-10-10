@@ -12,7 +12,10 @@
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions";
 const DEFAULT_MODEL = "gemini-3.8-flash"; // the model used in Google's examples
 const MAX_IMAGE_CHARS = 400_000; // about 300 KB of JPEG; our crops are much smaller
-const TIMEOUT_MS = 8000;
+const TIMEOUT_MS = 15000; // Gemini can take several seconds on an image
+
+// Let this route run long enough on Vercel for the request (and one retry).
+export const maxDuration = 40;
 const RATE_LIMIT = 20; // requests per minute per visitor (best effort, per server instance)
 
 const PROMPT = `You help people with color-vision deficiency. The image is a small crop around one object someone tapped in their camera view.
@@ -117,8 +120,13 @@ export async function POST(request: Request) {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
-    } catch {
-      console.error("Gemini request timed out or could not connect");
+    } catch (err) {
+      const e = err as { name?: string; message?: string; cause?: { code?: string; message?: string } };
+      const why =
+        e?.name === "TimeoutError"
+          ? `timed out after ${TIMEOUT_MS / 1000} s`
+          : `could not connect: ${e?.name ?? ""} ${e?.message ?? ""} ${e?.cause?.code ?? ""} ${e?.cause?.message ?? ""}`;
+      console.error(`Gemini request ${why.trim()} (attempt ${index + 1})`);
       return Response.json({ error: "Naming service unavailable" }, { status: 502 });
     }
 
