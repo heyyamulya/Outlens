@@ -14,6 +14,7 @@ import { colorPhrase, prepareSpeech, speak } from "@/lib/speak";
 import { cropAround, describeCrop, type ObjectInfo } from "@/lib/crop";
 import { CVD_LABELS, SIMULATION, applyMatrix, enhancementMatrix, multiply, svgMatrixValues, type CvdType } from "@/lib/cvd";
 import { createSimRenderer } from "@/lib/simGl";
+import { loadHands, readHand } from "@/lib/pinch";
 import { DEFAULT_USERS_JSON, activeUser, addUser, parseUsers, saveUsers, subscribeUsers, usersSnapshot, type UsersState } from "@/lib/profile";
 
 type Status = "idle" | "starting" | "live" | "denied" | "no-camera" | "busy" | "unsupported" | "error";
@@ -71,8 +72,9 @@ function stopStream(stream: MediaStream | null) {
 }
 
 /** Copies the current video frame into `canvas` (kept in memory, never saved or sent). */
-function captureFrame(video: HTMLVideoElement, canvas: HTMLCanvasElement): Frame | null {
-  const { videoWidth: width, videoHeight: height } = video;
+function captureFrame(video: HTMLVideoElement | HTMLCanvasElement, canvas: HTMLCanvasElement): Frame | null {
+  const width = video instanceof HTMLVideoElement ? video.videoWidth : video.width;
+  const height = video instanceof HTMLVideoElement ? video.videoHeight : video.height;
   if (!width || !height) return null;
   canvas.width = width;
   canvas.height = height;
@@ -240,6 +242,10 @@ export default function CameraExplorer() {
   const enhancedCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const lastCropRef = useRef<string | null>(null); // this tap's crop, reused for "More detail"
   const simCanvasRef = useRef<HTMLCanvasElement>(null);
+  const cursorRef = useRef<HTMLDivElement>(null); // pinch cursor
+  const cleanCanvasRef = useRef<HTMLCanvasElement | null>(null); // recent frame without a hand in it
+  // The latest selectAt, so the pinch loop (set up once) always calls the current version.
+  const selectAtRef = useRef<((x: number, y: number, source?: HTMLCanvasElement | null) => void) | null>(null);
 
   const [status, setStatus] = useState<Status>("idle");
   const [frozen, setFrozen] = useState(false);
@@ -254,6 +260,8 @@ export default function CameraExplorer() {
   const [signedIn, setSignedIn] = useState(false); // demo sign-in: nothing is stored or sent
   const [email, setEmail] = useState("maya@outlens.demo");
   const [controlsHidden, setControlsHidden] = useState(false); // presenting: show only the view
+  const [pinchOn, setPinchOn] = useState(false); // pinch to select (prototype), off by default
+  const [pinchStatus, setPinchStatus] = useState<"loading" | "ready" | "failed">("loading");
   // "user": the camera shows the world through the active user's eyes (a simulation).
   const [viewMode, setViewMode] = useState<"user" | "normal">("user");
   const simulate: CvdType | null = viewMode === "user" ? user.type : null;
@@ -347,6 +355,65 @@ export default function CameraExplorer() {
     };
   }, [status, simulate]);
 
+  // Pinch to select (prototype): follow the hand, and treat a pinch like a tap at that spot.
+  // While no hand is visible, keep a recent clean frame, so a pinch while live freezes the
+  // scene without the hand in it.
+  useEffect(() => {
+    const cursor = cursorRef.current;
+    if (!pinchOn || status !== "live" || !cursor) return;
+    let cancelled = false;
+    let raf = 0;
+    let lastTime = -1;
+    let lastClean = 0;
+    let wasPinched = false;
+    loadHands()
+      .then((hands) => {
+        if (cancelled) return;
+        setPinchStatus("ready");
+        const step = () => {
+          const video = videoRef.current;
+          const stage = stageRef.current;
+          if (video && stage && video.readyState >= 2 && video.currentTime !== lastTime) {
+            lastTime = video.currentTime;
+            const hand = readHand(hands, video, wasPinched);
+            const now = performance.now();
+            if (!hand.point) {
+              cursor.style.display = "none";
+              if (!frameRef.current && now - lastClean > 300 && video.videoWidth) {
+                const clean = (cleanCanvasRef.current ??= document.createElement("canvas"));
+                clean.width = video.videoWidth;
+                clean.height = video.videoHeight;
+                clean.getContext("2d")?.drawImage(video, 0, 0);
+                lastClean = now;
+              }
+            } else {
+              const rect = stage.getBoundingClientRect();
+              const view = coverView(rect.width, rect.height, video.videoWidth, video.videoHeight);
+              const x = rect.left + view.offsetX + hand.point.x * video.videoWidth * view.scale;
+              const y = rect.top + view.offsetY + hand.point.y * video.videoHeight * view.scale;
+              cursor.style.display = "block";
+              cursor.style.left = `${x}px`;
+              cursor.style.top = `${y}px`;
+              cursor.style.backgroundColor = `rgba(245, 184, 65, ${0.15 + hand.closeness * 0.6})`;
+              if (hand.pinched && !wasPinched) selectAtRef.current?.(x, y, frameRef.current ? null : cleanCanvasRef.current);
+            }
+            wasPinched = hand.pinched;
+          }
+          raf = requestAnimationFrame(step);
+        };
+        raf = requestAnimationFrame(step);
+      })
+      .catch((err) => {
+        console.error("Hand tracking failed to load:", err);
+        if (!cancelled) setPinchStatus("failed");
+      });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      cursor.style.display = "none";
+    };
+  }, [pinchOn, status]);
+
   // Turn the camera off when leaving the page.
   useEffect(() => () => stopStream(streamRef.current), []);
 
@@ -423,23 +490,33 @@ export default function CameraExplorer() {
     }
   }
 
-  async function handleTap(event: PointerEvent<HTMLDivElement>) {
-    if (!event.isPrimary || workingRef.current) return;
+  function handleTap(event: PointerEvent<HTMLDivElement>) {
+    if (!event.isPrimary) return;
+    selectAt(event.clientX, event.clientY);
+  }
+
+  /**
+   * Selects the object at a screen point (from a tap or a pinch). `source` is the picture to
+   * freeze if not frozen yet (pinch passes a frame from just before the hand appeared).
+   */
+  async function selectAt(clientX: number, clientY: number, source?: HTMLCanvasElement | null) {
+    if (workingRef.current) return;
     const video = videoRef.current;
     const frameCanvas = frameCanvasRef.current;
-    if (!video || !frameCanvas) return;
+    const stage = stageRef.current;
+    if (!video || !frameCanvas || !stage) return;
 
     // First tap freezes the video on this frame, so the outline always lines up.
     // Later taps (until resume) select another object on the same frame.
     let frame = frameRef.current;
     if (!frame) {
-      frame = captureFrame(video, frameCanvas);
+      frame = captureFrame(source && source.width ? source : video, frameCanvas);
       if (!frame) return;
       frameRef.current = frame;
       setFrozen(true);
     }
-    const rect = event.currentTarget.getBoundingClientRect();
-    const point = toFramePoint(rect, frame, event.clientX, event.clientY);
+    const rect = stage.getBoundingClientRect();
+    const point = toFramePoint(rect, frame, clientX, clientY);
     if (!point) return;
 
     workingRef.current = true;
@@ -500,6 +577,11 @@ export default function CameraExplorer() {
     }
   }
 
+  // Keep the pinch loop pointed at the latest selectAt.
+  useEffect(() => {
+    selectAtRef.current = selectAt;
+  });
+
   /** Close button: removes the outline and label; the picture stays frozen for another tap. */
   function clearSelection() {
     tapIdRef.current++;
@@ -527,7 +609,15 @@ export default function CameraExplorer() {
 
   const live = status === "live";
   const message = status in MESSAGES ? MESSAGES[status as keyof typeof MESSAGES] : null;
-  const chip = chipText(working, note);
+  const chip =
+    chipText(working, note) ??
+    (pinchOn
+      ? pinchStatus === "loading"
+        ? "Loading hand tracking…"
+        : pinchStatus === "failed"
+          ? "Pinch unavailable here. Tap still works."
+          : "✋ Pinch to select (prototype)"
+      : null);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#0E1624] text-lg text-white">
@@ -571,6 +661,12 @@ export default function CameraExplorer() {
       {live && (
         <>
           <canvas ref={overlayRef} aria-hidden className="pointer-events-none absolute inset-0 h-full w-full" />
+          <div
+            ref={cursorRef}
+            aria-hidden
+            style={{ display: "none" }}
+            className="pointer-events-none fixed z-10 h-11 w-11 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-[#F5B841] shadow-[0_0_0_2px_rgba(14,22,36,0.7)]"
+          />
 
           {reading && (
             <>
@@ -704,6 +800,20 @@ export default function CameraExplorer() {
               <span className="block text-base text-[#F5B841]">
                 {viewMode === "user" ? `Now: ${user.name}'s vision (simulation)` : "Now: actual vision"}
               </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPinchOn((on) => !on);
+                setPinchStatus("loading");
+              }}
+              aria-pressed={pinchOn}
+              className={`min-h-12 rounded-xl px-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF] ${
+                pinchOn ? "border-2 border-[#F5B841] bg-[#0E1624]/95" : "bg-[#0E1624]/90"
+              }`}
+            >
+              <span aria-hidden>✋ </span>Pinch: {pinchOn ? "On" : "Off"}
+              <span className="block text-base text-white/70">Prototype · tap always works</span>
             </button>
           </div>
           )}

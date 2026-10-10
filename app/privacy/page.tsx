@@ -23,6 +23,14 @@ export default function PrivacyPage() {
         </li>
       </ul>
 
+      <h2 className="mt-8 text-2xl font-semibold">Pinch to select (prototype)</h2>
+      <ul className="mt-2 list-disc space-y-2 pl-6">
+        <li>
+          If you turn on Pinch, your hand is tracked on your device with Google’s MediaPipe. Camera images are not sent for this.
+          MediaPipe does send usage and performance numbers (not images) to Google.
+        </li>
+      </ul>
+
       <h2 className="mt-8 text-2xl font-semibold">Naming the object (Google Gemini)</h2>
       <ul className="mt-2 list-disc space-y-2 pl-6">
         <li>
