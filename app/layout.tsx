@@ -14,7 +14,9 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Outlens",
-  description: "Tap an object to see its outline and estimated color.",
+  description:
+    "Software for color-blind-friendly smart glasses, previewed on your phone: see an object's outline, estimated color and name, then see it in colors you can tell apart.",
+  appleWebApp: { capable: true, title: "Outlens", statusBarStyle: "black-translucent" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

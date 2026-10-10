@@ -22,6 +22,8 @@ type Reading = {
   estimate: ColorEstimate;
   identifying?: boolean; // waiting for Gemini to name the object
   object?: ObjectInfo | null; // Gemini's name and description, when it answered
+  loadingMore?: boolean; // waiting for "More detail"
+  more?: string | null; // the longer description, when asked for
 };
 
 // Sample circle radius as a share of the camera image's shorter side (fallback color sample).
@@ -180,6 +182,7 @@ export default function CameraExplorer() {
   const workingRef = useRef(false);
   const tapIdRef = useRef(0); // so a late Gemini answer can't land on a newer selection
   const enhancedCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastCropRef = useRef<string | null>(null); // this tap's crop, reused for "More detail"
 
   const [status, setStatus] = useState<Status>("idle");
   const [frozen, setFrozen] = useState(false);
@@ -193,6 +196,21 @@ export default function CameraExplorer() {
   const [choosingProfile, setChoosingProfile] = useState(false);
   const [simulate, setSimulate] = useState<CvdType | null>(null); // "See as" simulation
   const [enhanced, setEnhanced] = useState(false); // selected object shown in the user's colors
+  const [shareOpen, setShareOpen] = useState(false); // "Share what I see" panel
+
+  /** Asks Gemini for a longer description of the same crop (only when the user taps it). */
+  function moreDetail() {
+    const image = lastCropRef.current;
+    if (!image || !reading) return;
+    const tapId = tapIdRef.current;
+    setReading((r) => (r ? { ...r, loadingMore: true } : r));
+    describeCrop(image, true).then((info) => {
+      if (tapIdRef.current !== tapId) return;
+      setReading((r) =>
+        r ? { ...r, loadingMore: false, more: info?.description ?? "No more detail is available right now." } : r,
+      );
+    });
+  }
 
   function pickProfile(p: Profile) {
     saveProfile(p);
@@ -367,6 +385,7 @@ export default function CameraExplorer() {
       // Name the object with Gemini: only a small crop around the selection, only now.
       const tapId = ++tapIdRef.current;
       const image = estimate ? cropAround(frameCanvas, around) : null;
+      lastCropRef.current = image;
       setReading(estimate ? { point, estimate, identifying: !!image } : null);
       if (image) {
         describeCrop(image).then((object) => {
@@ -478,6 +497,17 @@ export default function CameraExplorer() {
                   {reading.object?.description && (
                     <span className="text-[#0E1624]/70">{reading.object.description}</span>
                   )}
+                  {reading.more && <span className="mt-1 max-w-[18rem] text-[#0E1624]/80">{reading.more}</span>}
+                  {reading.loadingMore && <span className="text-[#0E1624]/60">Getting more detail…</span>}
+                  {reading.object && !reading.more && !reading.loadingMore && (
+                    <button
+                      type="button"
+                      onClick={moreDetail}
+                      className="-ml-1 min-h-12 self-start rounded-full px-1 text-left font-semibold text-[#1F6FD1] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+                    >
+                      More detail
+                    </button>
+                  )}
                   {!reading.identifying && (
                     <button
                       type="button"
@@ -523,17 +553,43 @@ export default function CameraExplorer() {
             >
               ← Home
             </Link>
+            <p className="rounded-xl bg-[#0E1624]/80 px-3 py-1 text-base text-white/85">Glasses view · phone preview</p>
             <button
               type="button"
-              onClick={() => setSimulate((cur) => SIM_ORDER[(SIM_ORDER.indexOf(cur) + 1) % SIM_ORDER.length])}
-              aria-label={`See as: ${simulate ? `${CVD_LABELS[simulate].long}, simulation` : "normal view"}. Tap to change.`}
+              onClick={() => setShareOpen((o) => !o)}
+              aria-expanded={shareOpen}
               className={`min-h-12 rounded-xl px-4 text-left font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF] ${
                 simulate ? "border-2 border-[#F5B841] bg-[#0E1624]/95" : "bg-[#0E1624]/90"
               }`}
             >
-              <span aria-hidden>👁 </span>See as: {simulate ? CVD_LABELS[simulate].short : "Normal"}
-              {simulate && <span className="block text-base font-normal text-[#F5B841]">Simulation</span>}
+              <span aria-hidden>👁 </span>Share what I see
+              {simulate && (
+                <span className="block text-base font-normal text-[#F5B841]">Simulation: {CVD_LABELS[simulate].short}</span>
+              )}
             </button>
+            {shareOpen && (
+              <div className="flex w-[min(20rem,calc(100vw-2rem))] flex-col gap-2 rounded-xl bg-[#0E1624]/97 p-3 shadow-lg">
+                <p className="text-base text-white/80">
+                  Show friends, family or teachers how this view looks with color blindness. This is a simulation.
+                </p>
+                {SIM_ORDER.map((t) => (
+                  <button
+                    key={t ?? "normal"}
+                    type="button"
+                    onClick={() => setSimulate(t)}
+                    aria-pressed={simulate === t}
+                    className={`min-h-12 rounded-lg border-2 px-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF] ${
+                      simulate === t ? "border-[#F5B841] bg-white/10" : "border-white/20"
+                    }`}
+                  >
+                    {t ? CVD_LABELS[t].long : "Normal view"}
+                  </button>
+                ))}
+                <button type="button" onClick={() => setShareOpen(false)} className="min-h-12 text-[#4DA3FF] underline underline-offset-4">
+                  Done
+                </button>
+              </div>
+            )}
             <button
               type="button"
               onClick={() => setChoosingProfile(true)}
@@ -611,6 +667,9 @@ export default function CameraExplorer() {
               My colors: {profile.type === "unsure" ? "Not sure" : CVD_LABELS[profile.type].short} (change)
             </button>
           )}
+          <Link href="/privacy" className="flex min-h-12 items-center text-[#4DA3FF] underline underline-offset-4">
+            Privacy: what happens to your camera
+          </Link>
           <Link href="/" className="flex min-h-12 items-center text-[#4DA3FF] underline underline-offset-4">
             Back to home
           </Link>

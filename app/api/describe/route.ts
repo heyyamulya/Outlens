@@ -29,6 +29,13 @@ Reply with JSON only:
 - "description": one short sentence (at most 12 words) about the colors you can see on it, for example "Mostly dark blue with a white stripe near the top."
 Rules: colors are estimates, so use words like "looks" or "appears". Never say whether food is ripe, fresh, spoiled or safe to eat. No health or medical statements. No brand names. No guesses about people.`;
 
+// "More detail": a fuller description of the same crop, asked for only when the user taps it.
+const PROMPT_DETAIL = `You help people with color-vision deficiency. The image is a small crop around one object someone tapped in their camera view.
+Reply with JSON only:
+- "name": what the main object is, in 1 to 3 plain lowercase words. If unsure, use a general word like "object".
+- "description": 2 or 3 short sentences (at most 50 words) that help someone who cannot tell some colors apart: which parts are which color, any pattern, print or text color, and which colors sit next to each other.
+Rules: colors are estimates, so use words like "looks" or "appears". Never say whether food is ripe, fresh, spoiled or safe to eat. No health or medical statements. No brand names. No guesses about people.`;
+
 const SCHEMA = {
   type: "OBJECT",
   properties: {
@@ -73,10 +80,10 @@ function cleanName(value: unknown): string | null {
   return name;
 }
 
-function cleanDescription(value: unknown): string | null {
+function cleanDescription(value: unknown, maxLength: number): string | null {
   if (typeof value !== "string") return null;
   const text = value.replace(/\s+/g, " ").trim();
-  if (!text || text.length > 160 || BLOCKED.test(text)) return null;
+  if (!text || text.length > maxLength || BLOCKED.test(text)) return null;
   return text;
 }
 
@@ -88,8 +95,9 @@ export async function POST(request: Request) {
   if (tooMany(visitor)) return Response.json({ error: "Too many requests" }, { status: 429 });
 
   let image: unknown;
+  let detail: unknown;
   try {
-    ({ image } = await request.json());
+    ({ image, detail } = await request.json());
   } catch {
     return Response.json({ error: "Bad request" }, { status: 400 });
   }
@@ -98,16 +106,18 @@ export async function POST(request: Request) {
   }
 
   const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
+  const prompt = detail === true ? PROMPT_DETAIL : PROMPT;
+  const maxDescription = detail === true ? 400 : 160;
   const imagePart = { inline_data: { mime_type: "image/jpeg", data: image } };
   // First try: ask for JSON that matches our schema. If Google rejects that request
   // format (400), try once more with a plain request and read the JSON from the text.
   const attempts: Record<string, unknown>[] = [
     {
-      contents: [{ parts: [{ text: PROMPT }, imagePart] }],
+      contents: [{ parts: [{ text: prompt }, imagePart] }],
       generationConfig: { response_mime_type: "application/json", response_schema: SCHEMA },
     },
     {
-      contents: [{ parts: [{ text: `${PROMPT}\nAnswer with only the JSON object, no other text.` }, imagePart] }],
+      contents: [{ parts: [{ text: `${prompt}\nAnswer with only the JSON object, no other text.` }, imagePart] }],
     },
   ];
   const endpoint = `${API_BASE}/${encodeURIComponent(model)}:generateContent`;
@@ -155,7 +165,7 @@ export async function POST(request: Request) {
       const name = cleanName(reply.name);
       if (!name) throw new Error("no usable name");
       console.info(`Gemini (${model}) named "${name}" in ${Date.now() - started} ms`);
-      return Response.json({ name, description: cleanDescription(reply.description) });
+      return Response.json({ name, description: cleanDescription(reply.description, maxDescription) });
     } catch (err) {
       console.error("Gemini reply could not be used:", err instanceof Error ? err.message : err);
       return Response.json({ error: "Naming service gave no answer" }, { status: 502 });

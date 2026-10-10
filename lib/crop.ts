@@ -48,13 +48,13 @@ export function cropAround(frame: HTMLCanvasElement, points: Point[]): string | 
 
 export type ObjectInfo = { name: string; description: string | null };
 
-/** Asks our /api/describe route to name the object. Returns null on any failure. */
-export async function describeCrop(image: string, timeoutMs = 20000): Promise<ObjectInfo | null> {
+/** Asks our /api/describe route to name the object (detail: a longer description). Null on failure. */
+export async function describeCrop(image: string, detail = false, timeoutMs = 20000): Promise<ObjectInfo | null> {
   try {
     const res = await fetch("/api/describe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image }),
+      body: JSON.stringify({ image, detail }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`Describe route returned ${res.status}`);
