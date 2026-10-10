@@ -13,6 +13,7 @@ Next.js on Vercel. MediaPipe in the browser. Server routes for Gemini and Eleven
 - Never store camera images. Send only a cropped selection to Gemini, only on selection.
 - Tap must always work; pinch is an extra.
 - Never rely on color alone in the UI. Avoid red/green. Use blue + amber + neutral.
+- The label's color swatch shows sampled camera content, not UI color, so it is exempt from the red/green rule. The text must always carry the full meaning.
 - Label anything sample or simulated.
 - Commit and deploy after every working stage. API keys only in server environment variables.
 
