@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import { estimateColor, pixelsInCircle, type ColorEstimate } from "@/lib/color";
-import { coverView, drawShape, type Shape } from "@/lib/drawOutline";
+import { circlePoints, outerLoop, placeCallout, type Box } from "@/lib/callout";
+import { coverView, drawCalloutLine, drawShape, type Shape } from "@/lib/drawOutline";
 import { outlineFromMask, type Frame, type OutlineResult, type Point } from "@/lib/outline";
 // Outlines come from the "magic wand" (colorMaskAt). The MediaPipe segmenter in
 // lib/segmenter.ts is switched off: in 1.0.1 its GPU mode returned empty masks and its
@@ -122,6 +123,10 @@ export default function CameraExplorer() {
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const ringRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLDivElement>(null);
+  const homeRef = useRef<HTMLAnchorElement>(null);
+  const chipRef = useRef<HTMLParagraphElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null); // frozen: hint and Resume button
+  const hintRef = useRef<HTMLParagraphElement>(null); // live: hint only
   const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const frameRef = useRef<Frame | null>(null);
@@ -159,25 +164,42 @@ export default function CameraExplorer() {
 
       const ring = ringRef.current;
       const label = labelRef.current;
-      if (!view || !reading || !ring || !label) return;
-      const x = view.offsetX + reading.point.x * view.scale;
-      const y = view.offsetY + reading.point.y * view.scale;
-      ring.style.left = `${x}px`;
-      ring.style.top = `${y}px`;
+      if (!view || !reading || !shape || !ring || !label) return;
 
-      const margin = 16;
-      const gap = 28;
-      const { offsetWidth: w, offsetHeight: h } = label;
-      const left = Math.max(margin, Math.min(x - w / 2, width - w - margin));
-      const above = y - gap - h;
-      const top = above >= margin ? above : Math.min(y + gap, height - h - margin);
-      label.style.left = `${left}px`;
-      label.style.top = `${top}px`;
+      // The object's outer edge on screen.
+      const toScreen = (p: Point) => ({ x: view.offsetX + p.x * view.scale, y: view.offsetY + p.y * view.scale });
+      const edge =
+        shape.kind === "outline"
+          ? outerLoop(shape.loops).map(toScreen)
+          : circlePoints(toScreen(shape.center), shape.radius * view.scale);
+
+      // Controls the label must not cover.
+      const avoid: Box[] = [];
+      for (const el of [homeRef.current, chipRef.current, bottomRef.current, hintRef.current]) {
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        avoid.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+      }
+
+      const placement = placeCallout({
+        edge,
+        labelWidth: label.offsetWidth,
+        labelHeight: label.offsetHeight,
+        screenWidth: width,
+        screenHeight: height,
+        avoid,
+      });
+      if (!placement) return;
+      label.style.left = `${placement.label.left}px`;
+      label.style.top = `${placement.label.top}px`;
+      ring.style.left = `${placement.dot.x}px`;
+      ring.style.top = `${placement.dot.y}px`;
+      drawCalloutLine(overlay, placement.dot, placement.lineEnd);
     };
     place();
     window.addEventListener("resize", place);
     return () => window.removeEventListener("resize", place);
-  }, [shape, reading]);
+  }, [shape, reading, note, working]);
 
   async function startCamera() {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -259,6 +281,13 @@ export default function CameraExplorer() {
     }
   }
 
+  /** Close button: removes the outline and label; the picture stays frozen for another tap. */
+  function clearSelection() {
+    setShape(null);
+    setReading(null);
+    setNote(null);
+  }
+
   function resume() {
     frameRef.current = null;
     const frameCanvas = frameCanvasRef.current;
@@ -313,8 +342,7 @@ export default function CameraExplorer() {
               />
               <div
                 ref={labelRef}
-                role="status"
-                className="pointer-events-none fixed left-0 top-0 flex max-w-[calc(100vw-32px)] items-center gap-3 rounded-xl border border-[#F5B841] bg-[#0E1624]/95 px-4 py-3 font-semibold shadow-lg"
+                className="fixed left-0 top-0 flex max-w-[calc(100vw-32px)] items-center gap-3 rounded-xl border border-[#F5B841] bg-[#0E1624]/95 py-1 pl-4 pr-1 font-semibold shadow-lg"
               >
                 {/* Swatch shows sampled camera content; the text carries the full meaning. */}
                 <span
@@ -322,12 +350,21 @@ export default function CameraExplorer() {
                   className="h-5 w-5 shrink-0 rounded-sm border border-white ring-1 ring-black"
                   style={{ backgroundColor: `rgb(${reading.estimate.rgb.r} ${reading.estimate.rgb.g} ${reading.estimate.rgb.b})` }}
                 />
-                <span>{reading.estimate.label}</span>
+                <span role="status">{reading.estimate.label}</span>
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  aria-label="Close label"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-2xl leading-none text-white/85 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+                >
+                  <span aria-hidden>✕</span>
+                </button>
               </div>
             </>
           )}
 
           <Link
+            ref={homeRef}
             href="/"
             className="absolute left-4 top-4 flex min-h-12 items-center rounded-xl bg-[#0E1624]/90 px-4 font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
           >
@@ -336,6 +373,7 @@ export default function CameraExplorer() {
 
           {chip && (
             <p
+              ref={chipRef}
               role="status"
               className="pointer-events-none absolute right-4 top-4 max-w-[calc(100vw-9rem)] rounded-xl border border-[#4DA3FF] bg-[#0E1624]/90 px-4 py-3 text-right"
             >
@@ -344,7 +382,7 @@ export default function CameraExplorer() {
           )}
 
           {frozen ? (
-            <div className="absolute inset-x-4 bottom-6 flex flex-col items-center gap-3">
+            <div ref={bottomRef} className="absolute inset-x-4 bottom-6 flex flex-col items-center gap-3">
               <p className="pointer-events-none w-fit rounded-xl bg-[#0E1624]/90 px-4 py-2 text-center">
                 Tap another spot to check it.
               </p>
@@ -357,7 +395,9 @@ export default function CameraExplorer() {
               </button>
             </div>
           ) : (
-            <p className="pointer-events-none absolute inset-x-4 bottom-6 mx-auto w-fit rounded-xl bg-[#0E1624]/90 px-4 py-3 text-center">
+            <p
+              ref={hintRef}
+              className="pointer-events-none absolute inset-x-4 bottom-6 mx-auto w-fit rounded-xl bg-[#0E1624]/90 px-4 py-3 text-center">
               Tap anything to outline it and estimate its color.
             </p>
           )}

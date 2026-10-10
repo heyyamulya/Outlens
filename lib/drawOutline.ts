@@ -88,3 +88,24 @@ export function drawShape(
   ctx.lineWidth = 4;
   ctx.stroke(path);
 }
+
+/**
+ * Draws the callout line from the dot on the object's edge to the label, on top of the shape.
+ * Same style as the outline (dark halo, blue line) so it shows on any background.
+ */
+export function drawCalloutLine(canvas: HTMLCanvasElement, from: Point, to: Point) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(from.x, from.y);
+  ctx.lineTo(to.x, to.y);
+  ctx.strokeStyle = HALO;
+  ctx.lineWidth = 7;
+  ctx.stroke();
+  ctx.strokeStyle = LINE;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+}
