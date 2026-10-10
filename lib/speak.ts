@@ -38,18 +38,24 @@ function browserSpeak(phrase: string): boolean {
   return true;
 }
 
-/** Call from a tap. Returns false if this browser can't speak at all. */
-export function speak(phrase: string): boolean {
+/**
+ * Call from a tap. Plays the first phrase whose ElevenLabs audio is ready (list the best
+ * phrase first). If none is ready, the browser voice says the first phrase right away.
+ * Returns false if this browser can't speak at all.
+ */
+export function speak(phrases: string[]): boolean {
+  if (phrases.length === 0) return false;
   stopAll();
-  const url = ready.get(phrase);
-  if (url) {
+  for (const phrase of phrases) {
+    const url = ready.get(phrase);
+    if (!url) continue;
     const audio = new Audio(url);
     current = audio;
     audio.play().catch(() => browserSpeak(phrase));
     return true;
   }
-  prepareSpeech(phrase); // so the next Listen can use ElevenLabs
-  return browserSpeak(phrase);
+  phrases.forEach(prepareSpeech); // so the next Listen can use ElevenLabs
+  return browserSpeak(phrases[0]);
 }
 
 /**

@@ -157,7 +157,9 @@ export default function CameraExplorer() {
 
   // When a label appears, get its spoken version ready so Listen can play it instantly.
   useEffect(() => {
-    if (reading && !reading.identifying) prepareSpeech(colorPhrase(reading.estimate.name, reading.object?.name));
+    if (!reading) return;
+    prepareSpeech(colorPhrase(reading.estimate.name)); // ready right away
+    if (reading.object) prepareSpeech(colorPhrase(reading.estimate.name, reading.object.name));
   }, [reading]);
 
   // Turn the camera off when leaving the page.
@@ -392,7 +394,9 @@ export default function CameraExplorer() {
                 </span>
                 <button
                   type="button"
-                  onClick={() => speak(colorPhrase(reading.estimate.name, reading.object?.name))}
+                  onClick={() =>
+                    speak([colorPhrase(reading.estimate.name, reading.object?.name), colorPhrase(reading.estimate.name)])
+                  }
                   aria-label="Listen"
                   className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[#0E1624]/75 hover:bg-[#0E1624]/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
                 >
