@@ -6,8 +6,8 @@
 // Checked against Google's Gemini API docs (Interactions API): POST /v1beta/interactions
 // with header "x-goog-api-key"; "input" holds a text part and an image part
 // ({ type: "image", data: base64, mime_type }); "response_format" with
-// mime_type "application/json" and a JSON "schema"; generation_config.thinking_level and
-// max_output_tokens; the answer text is in steps[].content[] (type "text").
+// mime_type "application/json" and a JSON "schema"; the answer text is in
+// steps[].content[] (type "text").
 
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions";
 const DEFAULT_MODEL = "gemini-3.8-flash"; // the model used in Google's examples
@@ -90,41 +90,65 @@ export async function POST(request: Request) {
     return Response.json({ error: "Bad image" }, { status: 400 });
   }
 
-  let upstream: Response;
-  try {
-    upstream = await fetch(ENDPOINT, {
-      method: "POST",
-      headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: process.env.GEMINI_MODEL || DEFAULT_MODEL,
-        input: [
-          { type: "text", text: PROMPT },
-          { type: "image", data: image, mime_type: "image/jpeg" },
-        ],
-        response_format: { type: "text", mime_type: "application/json", schema: SCHEMA },
-        generation_config: { thinking_level: "minimal", max_output_tokens: 200 },
-        store: false,
-      }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-  } catch {
-    console.error("Gemini request timed out or could not connect");
-    return Response.json({ error: "Naming service unavailable" }, { status: 502 });
-  }
-  if (!upstream.ok) {
-    console.error(`Gemini request failed (${upstream.status})`);
-    return Response.json({ error: "Naming service failed" }, { status: 502 });
-  }
+  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
+  const imagePart = { type: "image", data: image, mime_type: "image/jpeg" };
+  // First try: ask for JSON that matches our schema. If Google rejects that request
+  // format (400), try once more with a plain request and read the JSON from the text.
+  const attempts: Record<string, unknown>[] = [
+    {
+      model,
+      input: [{ type: "text", text: PROMPT }, imagePart],
+      response_format: { type: "text", mime_type: "application/json", schema: SCHEMA },
+      store: false,
+    },
+    {
+      model,
+      input: [{ type: "text", text: `${PROMPT}\nAnswer with only the JSON object, no other text.` }, imagePart],
+      store: false,
+    },
+  ];
 
-  try {
-    const text = findText(await upstream.json());
-    if (!text) throw new Error("no text in reply");
-    const reply = JSON.parse(text) as { name?: unknown; description?: unknown };
-    const name = cleanName(reply.name);
-    if (!name) throw new Error("no usable name");
-    return Response.json({ name, description: cleanDescription(reply.description) });
-  } catch (err) {
-    console.error("Gemini reply could not be used:", err instanceof Error ? err.message : err);
-    return Response.json({ error: "Naming service gave no answer" }, { status: 502 });
+  for (const [index, body] of attempts.entries()) {
+    let upstream: Response;
+    try {
+      upstream = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch {
+      console.error("Gemini request timed out or could not connect");
+      return Response.json({ error: "Naming service unavailable" }, { status: 502 });
+    }
+
+    if (!upstream.ok) {
+      // Google's error message says what it objected to; it never contains our key.
+      let message = "";
+      try {
+        const err = (await upstream.json()) as { error?: { message?: string } };
+        message = (err?.error?.message ?? "").slice(0, 300);
+      } catch {
+        // no readable error body
+      }
+      console.error(`Gemini request failed (${upstream.status}, attempt ${index + 1}): ${message}`);
+      if (upstream.status === 400 && index < attempts.length - 1) continue;
+      return Response.json({ error: "Naming service failed" }, { status: 502 });
+    }
+
+    try {
+      const text = findText(await upstream.json());
+      if (!text) throw new Error("no text in reply");
+      // Accept plain JSON, or JSON wrapped in ```json fences.
+      const json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+      const reply = JSON.parse(json) as { name?: unknown; description?: unknown };
+      const name = cleanName(reply.name);
+      if (!name) throw new Error("no usable name");
+      return Response.json({ name, description: cleanDescription(reply.description) });
+    } catch (err) {
+      console.error("Gemini reply could not be used:", err instanceof Error ? err.message : err);
+      return Response.json({ error: "Naming service gave no answer" }, { status: 502 });
+    }
   }
+  return Response.json({ error: "Naming service failed" }, { status: 502 });
 }
