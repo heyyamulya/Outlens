@@ -1,16 +1,21 @@
 // Names the object in a small crop and describes its visible colors, using Gemini.
 // The app sends a crop only when someone taps, and only the area around the selected
-// object, never the whole camera view. Nothing is stored here, and we ask Google not to
-// store it either (store: false). The key stays on the server (GEMINI_API_KEY).
+// object, never the whole camera view. Nothing is stored here. What Google may do with it
+// depends on the Gemini API tier (free tier: may be used to improve Google's products;
+// paid tier: not). The key stays on the server (GEMINI_API_KEY).
 //
-// Checked against Google's Gemini API docs (Interactions API): POST /v1beta/interactions
-// with header "x-goog-api-key"; "input" holds a text part and an image part
-// ({ type: "image", data: base64, mime_type }); "response_format" with
-// mime_type "application/json" and a JSON "schema"; the answer text is in
-// steps[].content[] (type "text").
+// Checked against Google's Gemini API reference: POST
+// /v1beta/models/{model}:generateContent with header "x-goog-api-key"; "contents[].parts"
+// holds a text part and an image part ({ inline_data: { mime_type, data } });
+// generationConfig.response_mime_type "application/json" and response_schema ask for JSON;
+// the answer text is in candidates[].content.parts[].text. (We first tried the newer
+// Interactions API, but it did not answer within 15 s for a small image.)
 
-const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/interactions";
-const DEFAULT_MODEL = "gemini-3.8-flash"; // the model used in Google's examples
+const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+// Fast, simple model: per Google's thinking docs its default thinking level is "minimal"
+// (gemini-3.8-flash defaults to "medium", which took over 15 s here). Free tier per the
+// pricing page. Set GEMINI_MODEL in Vercel to try another model.
+const DEFAULT_MODEL = "gemini-3.5-flash-lite";
 const MAX_IMAGE_CHARS = 400_000; // about 300 KB of JPEG; our crops are much smaller
 const TIMEOUT_MS = 15000; // Gemini can take several seconds on an image
 
@@ -25,10 +30,10 @@ Reply with JSON only:
 Rules: colors are estimates, so use words like "looks" or "appears". Never say whether food is ripe, fresh, spoiled or safe to eat. No health or medical statements. No brand names. No guesses about people.`;
 
 const SCHEMA = {
-  type: "object",
+  type: "OBJECT",
   properties: {
-    name: { type: "string" },
-    description: { type: "string" },
+    name: { type: "STRING" },
+    description: { type: "STRING" },
   },
   required: ["name", "description"],
 };
@@ -48,15 +53,14 @@ function tooMany(visitor: string): boolean {
 }
 
 function findText(data: unknown): string | null {
-  const steps = (data as { steps?: unknown[] })?.steps;
-  if (Array.isArray(steps)) {
-    for (const step of steps) {
-      const content = (step as { content?: unknown[] })?.content;
-      if (!Array.isArray(content)) continue;
-      for (const part of content) {
-        const p = part as { type?: string; text?: unknown };
-        if (p?.type === "text" && typeof p.text === "string") return p.text;
-      }
+  const candidates = (data as { candidates?: unknown[] })?.candidates;
+  if (!Array.isArray(candidates)) return null;
+  for (const candidate of candidates) {
+    const parts = (candidate as { content?: { parts?: unknown[] } })?.content?.parts;
+    if (!Array.isArray(parts)) continue;
+    for (const part of parts) {
+      const p = part as { text?: unknown; thought?: boolean };
+      if (typeof p?.text === "string" && !p.thought) return p.text;
     }
   }
   return null;
@@ -94,27 +98,25 @@ export async function POST(request: Request) {
   }
 
   const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
-  const imagePart = { type: "image", data: image, mime_type: "image/jpeg" };
+  const imagePart = { inline_data: { mime_type: "image/jpeg", data: image } };
   // First try: ask for JSON that matches our schema. If Google rejects that request
   // format (400), try once more with a plain request and read the JSON from the text.
   const attempts: Record<string, unknown>[] = [
     {
-      model,
-      input: [{ type: "text", text: PROMPT }, imagePart],
-      response_format: { type: "text", mime_type: "application/json", schema: SCHEMA },
-      store: false,
+      contents: [{ parts: [{ text: PROMPT }, imagePart] }],
+      generationConfig: { response_mime_type: "application/json", response_schema: SCHEMA },
     },
     {
-      model,
-      input: [{ type: "text", text: `${PROMPT}\nAnswer with only the JSON object, no other text.` }, imagePart],
-      store: false,
+      contents: [{ parts: [{ text: `${PROMPT}\nAnswer with only the JSON object, no other text.` }, imagePart] }],
     },
   ];
+  const endpoint = `${API_BASE}/${encodeURIComponent(model)}:generateContent`;
 
+  const started = Date.now();
   for (const [index, body] of attempts.entries()) {
     let upstream: Response;
     try {
-      upstream = await fetch(ENDPOINT, {
+      upstream = await fetch(endpoint, {
         method: "POST",
         headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -152,6 +154,7 @@ export async function POST(request: Request) {
       const reply = JSON.parse(json) as { name?: unknown; description?: unknown };
       const name = cleanName(reply.name);
       if (!name) throw new Error("no usable name");
+      console.info(`Gemini (${model}) named "${name}" in ${Date.now() - started} ms`);
       return Response.json({ name, description: cleanDescription(reply.description) });
     } catch (err) {
       console.error("Gemini reply could not be used:", err instanceof Error ? err.message : err);
