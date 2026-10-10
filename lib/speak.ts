@@ -52,7 +52,13 @@ export function speak(phrase: string): boolean {
   return browserSpeak(phrase);
 }
 
-/** The phrase for a color estimate, e.g. "Estimated color: dark blue." */
-export function colorPhrase(colorName: string): string {
-  return `Estimated color: ${colorName.toLowerCase()}.`;
+/**
+ * The phrase for a color estimate, with the object's name when known.
+ * e.g. "Estimated color: dark blue." or "Paper plate. Estimated color: white."
+ */
+export function colorPhrase(colorName: string, objectName?: string | null): string {
+  const color = `Estimated color: ${colorName.toLowerCase()}.`;
+  if (!objectName) return color;
+  const name = objectName.toLowerCase();
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)}. ${color}`;
 }

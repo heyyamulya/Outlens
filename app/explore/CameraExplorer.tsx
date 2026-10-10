@@ -11,10 +11,16 @@ import { outlineFromMask, type Frame, type OutlineResult, type Point } from "@/l
 // CPU mode took about 12 s per tap on a laptop.
 import { colorMaskAt } from "@/lib/colorRegion";
 import { colorPhrase, prepareSpeech, speak } from "@/lib/speak";
+import { cropAround, describeCrop, type ObjectInfo } from "@/lib/crop";
 
 type Status = "idle" | "starting" | "live" | "denied" | "no-camera" | "busy" | "unsupported" | "error";
 
-type Reading = { point: Point; estimate: ColorEstimate }; // point in frame pixels
+type Reading = {
+  point: Point; // frame pixels
+  estimate: ColorEstimate;
+  identifying?: boolean; // waiting for Gemini to name the object
+  object?: ObjectInfo | null; // Gemini's name and description, when it answered
+};
 
 // Sample circle radius as a share of the camera image's shorter side (fallback color sample).
 const SAMPLE_RADIUS_FRACTION = 0.02;
@@ -132,6 +138,7 @@ export default function CameraExplorer() {
   const streamRef = useRef<MediaStream | null>(null);
   const frameRef = useRef<Frame | null>(null);
   const workingRef = useRef(false);
+  const tapIdRef = useRef(0); // so a late Gemini answer can't land on a newer selection
 
   const [status, setStatus] = useState<Status>("idle");
   const [frozen, setFrozen] = useState(false);
@@ -150,7 +157,7 @@ export default function CameraExplorer() {
 
   // When a label appears, get its spoken version ready so Listen can play it instantly.
   useEffect(() => {
-    if (reading) prepareSpeech(colorPhrase(reading.estimate.name));
+    if (reading && !reading.identifying) prepareSpeech(colorPhrase(reading.estimate.name, reading.object?.name));
   }, [reading]);
 
   // Turn the camera off when leaving the page.
@@ -267,14 +274,29 @@ export default function CameraExplorer() {
       }
 
       const outlineEstimate = result ? estimateColor(result.pixels) : null;
+      let estimate: ColorEstimate | null;
+      let around: Point[]; // the selected area, for the crop sent to Gemini
       if (result && outlineEstimate) {
         setShape({ kind: "outline", loops: result.loops });
-        setReading({ point, estimate: outlineEstimate });
+        estimate = outlineEstimate;
+        around = outerLoop(result.loops);
       } else {
         const view = coverView(rect.width, rect.height, frame.width, frame.height);
-        setShape({ kind: "simple", center: point, radius: SIMPLE_SHAPE_RADIUS / view.scale });
-        const estimate = sampleCircle(frameCanvas, point, sampleCanvasRef);
-        setReading(estimate ? { point, estimate } : null);
+        const radius = SIMPLE_SHAPE_RADIUS / view.scale;
+        setShape({ kind: "simple", center: point, radius });
+        estimate = sampleCircle(frameCanvas, point, sampleCanvasRef);
+        around = circlePoints(point, radius);
+      }
+
+      // Name the object with Gemini: only a small crop around the selection, only now.
+      const tapId = ++tapIdRef.current;
+      const image = estimate ? cropAround(frameCanvas, around) : null;
+      setReading(estimate ? { point, estimate, identifying: !!image } : null);
+      if (image) {
+        describeCrop(image).then((object) => {
+          if (tapIdRef.current !== tapId) return; // a newer tap or close happened meanwhile
+          setReading((r) => (r ? { ...r, identifying: false, object } : r));
+        });
       }
     } catch (err) {
       // Anything unexpected: say so in the chip and still show the simple shape for this tap.
@@ -291,12 +313,14 @@ export default function CameraExplorer() {
 
   /** Close button: removes the outline and label; the picture stays frozen for another tap. */
   function clearSelection() {
+    tapIdRef.current++;
     setShape(null);
     setReading(null);
     setNote(null);
   }
 
   function resume() {
+    tapIdRef.current++;
     frameRef.current = null;
     const frameCanvas = frameCanvasRef.current;
     if (frameCanvas) {
@@ -350,7 +374,7 @@ export default function CameraExplorer() {
               />
               <div
                 ref={labelRef}
-                className="fixed left-0 top-0 flex max-w-[calc(100vw-32px)] items-center gap-3 rounded-full border-2 border-[#4DA3FF] bg-white py-0.5 pl-3 pr-0.5 text-[#0E1624] shadow-[0_4px_16px_rgba(14,22,36,0.35)]"
+                className="fixed left-0 top-0 flex max-w-[calc(100vw-32px)] items-center gap-3 rounded-[28px] border-2 border-[#4DA3FF] bg-white py-0.5 pl-3 pr-0.5 text-[#0E1624] shadow-[0_4px_16px_rgba(14,22,36,0.35)]"
               >
                 {/* Swatch shows sampled camera content; the text carries the full meaning. */}
                 <span
@@ -358,12 +382,17 @@ export default function CameraExplorer() {
                   className="h-7 w-7 shrink-0 rounded-full ring-1 ring-[#0E1624]/30"
                   style={{ backgroundColor: `rgb(${reading.estimate.rgb.r} ${reading.estimate.rgb.g} ${reading.estimate.rgb.b})` }}
                 />
-                <span role="status" className="font-medium">
-                  {reading.estimate.label}
+                <span role="status" className="flex min-w-0 flex-col py-1.5 leading-snug">
+                  {reading.object && <span className="font-semibold capitalize">{reading.object.name}</span>}
+                  <span className="font-medium">{reading.estimate.label}</span>
+                  {reading.identifying && <span className="text-[#0E1624]/60">Identifying…</span>}
+                  {reading.object?.description && (
+                    <span className="text-[#0E1624]/70">{reading.object.description}</span>
+                  )}
                 </span>
                 <button
                   type="button"
-                  onClick={() => speak(colorPhrase(reading.estimate.name))}
+                  onClick={() => speak(colorPhrase(reading.estimate.name, reading.object?.name))}
                   aria-label="Listen"
                   className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[#0E1624]/75 hover:bg-[#0E1624]/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
                 >

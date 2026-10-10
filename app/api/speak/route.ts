@@ -8,8 +8,9 @@
 const DEFAULT_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
 
 // Only phrases the app itself makes, so nobody can use this route to spend the credits
-// on other text. Example: "Estimated color: dark blue."
-const ALLOWED = /^Estimated color: [a-z][a-z -]{0,40}\.$/;
+// on other text. Examples: "Estimated color: dark blue." and
+// "Paper plate. Estimated color: white." (the name comes from Gemini, letters only).
+const ALLOWED = /^(?:[A-Z][a-z -]{0,29}\. )?Estimated color: [a-z][a-z -]{0,40}\.$/;
 
 export async function POST(request: Request) {
   const apiKey = process.env.ELEVENLABS_API_KEY;
