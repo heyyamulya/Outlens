@@ -130,6 +130,10 @@ function chipText(working: boolean, note: string | null): string | null {
   return null;
 }
 
+// Compact action button in the label (still a 48px tap target).
+const ACTION =
+  "min-h-12 rounded-full bg-[#0E1624]/[0.07] px-3 font-semibold text-[#0E1624] hover:bg-[#0E1624]/[0.12] aria-pressed:bg-[#4DA3FF]/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]";
+
 const TYPE_HINTS: Record<CvdType, string> = {
   deutan: "Most common. Red, green, brown and orange can look alike.",
   protan: "Reds look darker; red and green are easy to mix up.",
@@ -375,7 +379,8 @@ export default function CameraExplorer() {
         const step = () => {
           const video = videoRef.current;
           const stage = stageRef.current;
-          if (video && stage && video.readyState >= 2 && video.currentTime !== lastTime) {
+          // While the picture is paused, the cursor stays where it is (no tracking).
+          if (!frameRef.current && video && stage && video.readyState >= 2 && video.currentTime !== lastTime) {
             lastTime = video.currentTime;
             const hand = readHand(hands, video, wasPinched);
             const now = performance.now();
@@ -688,41 +693,47 @@ export default function CameraExplorer() {
               />
               <div
                 ref={labelRef}
-                className="fixed left-0 top-0 flex max-w-[calc(100vw-32px)] items-center gap-3 rounded-[28px] border-2 border-[#4DA3FF] bg-white py-0.5 pl-3 pr-0.5 text-[#0E1624] shadow-[0_4px_16px_rgba(14,22,36,0.35)]"
+                className="fixed left-0 top-0 w-[min(19rem,calc(100vw-32px))] rounded-2xl border border-[#4DA3FF]/80 bg-white/75 p-2 pl-3 text-[#0E1624] shadow-[0_4px_16px_rgba(14,22,36,0.25)] backdrop-blur-md"
               >
-                {/* Swatch shows sampled camera content; the text carries the full meaning. */}
-                <span
-                  aria-hidden
-                  className="h-7 w-7 shrink-0 rounded-full ring-1 ring-[#0E1624]/30"
-                  style={{ backgroundColor: `rgb(${reading.estimate.rgb.r} ${reading.estimate.rgb.g} ${reading.estimate.rgb.b})` }}
-                />
-                <span role="status" className="flex min-w-0 flex-col py-1.5 leading-snug">
-                  {reading.object && <span className="font-semibold capitalize">{reading.object.name}</span>}
-                  <span className="font-medium">{reading.estimate.label}</span>
-                  {reading.identifying && <span className="text-[#0E1624]/60">Identifying…</span>}
-                  {reading.object?.description && (
-                    <span className="text-[#0E1624]/70">{reading.object.description}</span>
-                  )}
-                  {reading.more && <span className="mt-1 max-w-[18rem] text-[#0E1624]/80">{reading.more}</span>}
-                  {reading.loadingMore && <span className="text-[#0E1624]/60">Getting more detail…</span>}
-                  {reading.object && !reading.more && !reading.loadingMore && (
-                    <button
-                      type="button"
-                      onClick={moreDetail}
-                      className="-ml-1 min-h-12 self-start rounded-full px-1 text-left font-semibold text-[#1F6FD1] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
-                    >
-                      More detail
-                    </button>
-                  )}
+                <div className="flex items-start gap-2">
+                  {/* Swatch shows sampled camera content; the text carries the full meaning. */}
+                  <span
+                    aria-hidden
+                    className="mt-1.5 h-6 w-6 shrink-0 rounded-full ring-1 ring-[#0E1624]/30"
+                    style={{ backgroundColor: `rgb(${reading.estimate.rgb.r} ${reading.estimate.rgb.g} ${reading.estimate.rgb.b})` }}
+                  />
+                  <div role="status" className="min-w-0 flex-1 py-1 leading-snug">
+                    {reading.object && <div className="font-semibold capitalize">{reading.object.name}</div>}
+                    <div className="font-medium">{reading.estimate.label}</div>
+                    {reading.identifying && <div className="text-[#0E1624]/60">Identifying…</div>}
+                    {reading.object?.description && <div className="text-[#0E1624]/75">{reading.object.description}</div>}
+                    {reading.more && <div className="mt-1 text-[#0E1624]/85">{reading.more}</div>}
+                    {reading.loadingMore && <div className="text-[#0E1624]/60">Getting more detail…</div>}
+                    {enhanced && <div className="text-[#0E1624]/60">Boosted for {user.name} (approximate)</div>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearSelection}
+                    aria-label="Close label"
+                    className="-mr-1 -mt-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-xl leading-none text-[#0E1624]/55 hover:bg-[#0E1624]/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+                  >
+                    <span aria-hidden>✕</span>
+                  </button>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      speak([colorPhrase(reading.estimate.name, reading.object?.name), colorPhrase(reading.estimate.name)])
+                    }
+                    className={ACTION}
+                  >
+                    <span aria-hidden>🔊 </span>Listen
+                  </button>
                   {!reading.identifying && (
-                    <button
-                      type="button"
-                      onClick={toggleEnhanced}
-                      aria-pressed={enhanced}
-                      className="-ml-1 mt-1 min-h-12 self-start rounded-full px-1 text-left font-semibold text-[#1F6FD1] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
-                    >
-                      {enhanced ? "Show without boost" : `✨ Boost colors for ${user.name}`}
-                      {enhanced && <span className="block text-base font-normal text-[#0E1624]/60">Boosted (approximate)</span>}
+                    <button type="button" onClick={toggleEnhanced} aria-pressed={enhanced} className={ACTION}>
+                      <span aria-hidden>✨ </span>
+                      {enhanced ? "Unboost" : "Boost"}
                     </button>
                   )}
                   <button
@@ -731,33 +742,18 @@ export default function CameraExplorer() {
                       setViewMode((m) => (m === "user" ? "normal" : "user"));
                       setEnhanced(false);
                     }}
-                    className="-ml-1 min-h-12 self-start rounded-full px-1 text-left font-semibold text-[#1F6FD1] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+                    aria-label={viewMode === "user" ? "See in actual vision" : `See in ${user.name}'s vision`}
+                    className={ACTION}
                   >
-                    {viewMode === "user" ? "👁 See in actual vision" : `👁 See in ${user.name}'s vision`}
+                    <span aria-hidden>👁 </span>
+                    {viewMode === "user" ? "Actual" : `${user.name}'s`}
                   </button>
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    speak([colorPhrase(reading.estimate.name, reading.object?.name), colorPhrase(reading.estimate.name)])
-                  }
-                  aria-label="Listen"
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[#0E1624]/75 hover:bg-[#0E1624]/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
-                >
-                  <svg aria-hidden viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none" />
-                    <path d="M16.5 8.5a5 5 0 0 1 0 7" />
-                    <path d="M19 6a8.5 8.5 0 0 1 0 12" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={clearSelection}
-                  aria-label="Close label"
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-2xl leading-none text-[#0E1624]/55 hover:bg-[#0E1624]/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
-                >
-                  <span aria-hidden>✕</span>
-                </button>
+                  {reading.object && !reading.more && !reading.loadingMore && (
+                    <button type="button" onClick={moreDetail} className={ACTION}>
+                      More
+                    </button>
+                  )}
+                </div>
               </div>
             </>
           )}
@@ -845,7 +841,19 @@ export default function CameraExplorer() {
             </p>
           )}
 
-          {controlsHidden ? null : frozen ? (
+          {controlsHidden ? (
+            frozen && (
+              <div ref={bottomRef} className="absolute inset-x-4 bottom-6 flex justify-center">
+                <button
+                  type="button"
+                  onClick={resume}
+                  className="min-h-12 rounded-xl bg-[#F5B841] px-6 font-semibold text-[#0E1624] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+                >
+                  Tap to resume
+                </button>
+              </div>
+            )
+          ) : frozen ? (
             <div ref={bottomRef} className="absolute inset-x-4 bottom-6 flex flex-col items-center gap-3">
               <p className="pointer-events-none w-fit rounded-xl bg-[#0E1624]/90 px-4 py-2 text-center">
                 Tap another spot to check it.
