@@ -111,7 +111,6 @@ const orange = [255, 165, 0];
   check("wand: background tap -> fallback", wand(flat, { x: 5, y: 5 }) === null);
 
   // Similar but different colors side by side: orange next to red stays separate.
-  const red = (x, y) => x >= 70 && x < 90 && y >= 30 && y < 70;
   const twoColor = makeFrame(square, orange);
   for (let y = 30; y < 70; y++) for (let x = 70; x < 90; x++) twoColor.data.set([200, 30, 30, 255], (y * SIZE + x) * 4);
   const r4 = wand(twoColor, { x: 50, y: 50 });
