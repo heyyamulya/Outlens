@@ -13,6 +13,7 @@ import { colorMaskAt } from "@/lib/colorRegion";
 import { colorPhrase, prepareSpeech, speak } from "@/lib/speak";
 import { cropAround, describeCrop, type ObjectInfo } from "@/lib/crop";
 import { CVD_LABELS, SIMULATION, applyMatrix, enhancementMatrix, multiply, svgMatrixValues, type CvdType } from "@/lib/cvd";
+import { createSimRenderer } from "@/lib/simGl";
 import { DEFAULT_USERS_JSON, activeUser, addUser, parseUsers, saveUsers, subscribeUsers, usersSnapshot, type UsersState } from "@/lib/profile";
 
 type Status = "idle" | "starting" | "live" | "denied" | "no-camera" | "busy" | "unsupported" | "error";
@@ -238,6 +239,7 @@ export default function CameraExplorer() {
   const tapIdRef = useRef(0); // so a late Gemini answer can't land on a newer selection
   const enhancedCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const lastCropRef = useRef<string | null>(null); // this tap's crop, reused for "More detail"
+  const simCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const [status, setStatus] = useState<Status>("idle");
   const [frozen, setFrozen] = useState(false);
@@ -249,6 +251,9 @@ export default function CameraExplorer() {
   const usersState = parseUsers(useSyncExternalStore(subscribeUsers, usersSnapshot, () => DEFAULT_USERS_JSON));
   const user = activeUser(usersState);
   const [usersOpen, setUsersOpen] = useState(false);
+  const [signedIn, setSignedIn] = useState(false); // demo sign-in: nothing is stored or sent
+  const [email, setEmail] = useState("maya@outlens.demo");
+  const [controlsHidden, setControlsHidden] = useState(false); // presenting: show only the view
   // "user": the camera shows the world through the active user's eyes (a simulation).
   const [viewMode, setViewMode] = useState<"user" | "normal">("user");
   const simulate: CvdType | null = viewMode === "user" ? user.type : null;
@@ -312,6 +317,35 @@ export default function CameraExplorer() {
     prepareSpeech(colorPhrase(reading.estimate.name)); // ready right away
     if (reading.object) prepareSpeech(colorPhrase(reading.estimate.name, reading.object.name));
   }, [reading]);
+
+  // The user's-eyes view: redraw the camera through their simulation on the graphics chip.
+  // Falls back to a CSS filter (laptops) if WebGL is not available.
+  useEffect(() => {
+    const canvas = simCanvasRef.current;
+    const stage = stageRef.current;
+    if (status !== "live" || !simulate || !canvas || !stage) return;
+    const renderer = createSimRenderer(canvas);
+    if (!renderer) {
+      canvas.style.display = "none";
+      stage.style.filter = `url(#cvd-sim-${simulate})`;
+      return () => {
+        canvas.style.display = "";
+        stage.style.filter = "";
+      };
+    }
+    const matrix = SIMULATION[simulate];
+    let raf = 0;
+    const loop = () => {
+      const source = frameRef.current ? frameCanvasRef.current : videoRef.current;
+      if (source) renderer.draw(source, matrix);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => {
+      cancelAnimationFrame(raf);
+      renderer.dispose();
+    };
+  }, [status, simulate]);
 
   // Turn the camera off when leaving the page.
   useEffect(() => () => stopStream(streamRef.current), []);
@@ -497,7 +531,7 @@ export default function CameraExplorer() {
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#0E1624] text-lg text-white">
-      {/* "See as" simulations, applied to the camera view only (not to labels or buttons). */}
+      {/* Fallback for the user's-eyes view when WebGL is unavailable (works on laptops, not iPhone video). */}
       <svg aria-hidden width="0" height="0" className="absolute">
         <defs>
           {(Object.keys(SIMULATION) as CvdType[]).map((t) => (
@@ -510,7 +544,6 @@ export default function CameraExplorer() {
       <div
         ref={stageRef}
         className={`absolute inset-0 touch-manipulation ${live ? "" : "hidden"}`}
-        style={simulate ? { filter: `url(#cvd-sim-${simulate})` } : undefined}
         onPointerUp={live ? handleTap : undefined}
       >
         <video
@@ -526,6 +559,12 @@ export default function CameraExplorer() {
           ref={frameCanvasRef}
           aria-hidden
           className={`absolute inset-0 h-full w-full object-cover ${frozen ? "" : "hidden"}`}
+        />
+        {/* The user's-eyes view: the camera (or frozen frame) redrawn through their simulation. */}
+        <canvas
+          ref={simCanvasRef}
+          aria-hidden
+          className={`pointer-events-none absolute inset-0 h-full w-full object-cover ${simulate ? "" : "hidden"}`}
         />
       </div>
 
@@ -606,7 +645,26 @@ export default function CameraExplorer() {
             </>
           )}
 
+          {controlsHidden && (
+            <button
+              type="button"
+              onClick={() => setControlsHidden(false)}
+              aria-label="Show controls"
+              className="absolute left-3 top-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#0E1624]/60 text-2xl opacity-70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+            >
+              <span aria-hidden>☰</span>
+            </button>
+          )}
+
+          {!controlsHidden && (
           <div ref={homeRef} className="absolute left-4 top-4 flex max-w-[13rem] flex-col items-start gap-2">
+            <button
+              type="button"
+              onClick={() => setControlsHidden(true)}
+              className="min-h-12 rounded-xl bg-[#0E1624]/90 px-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+            >
+              <span aria-hidden>◀ </span>Hide controls
+            </button>
             <Link
               href="/"
               className="flex min-h-12 items-center rounded-xl bg-[#0E1624]/90 px-4 font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
@@ -636,6 +694,7 @@ export default function CameraExplorer() {
               <span className="block text-base text-[#F5B841]">{viewMode === "user" ? "Simulation · tap for normal" : `Tap for ${user.name}'s eyes`}</span>
             </button>
           </div>
+          )}
 
           {usersOpen && (
             <div className="absolute inset-0 z-20 overflow-y-auto bg-[#0E1624]/97 px-4 py-8">
@@ -643,7 +702,7 @@ export default function CameraExplorer() {
             </div>
           )}
 
-          {chip && (
+          {chip && !controlsHidden && (
             <p
               ref={chipRef}
               role="status"
@@ -653,7 +712,7 @@ export default function CameraExplorer() {
             </p>
           )}
 
-          {frozen ? (
+          {controlsHidden ? null : frozen ? (
             <div ref={bottomRef} className="absolute inset-x-4 bottom-6 flex flex-col items-center gap-3">
               <p className="pointer-events-none w-fit rounded-xl bg-[#0E1624]/90 px-4 py-2 text-center">
                 Tap another spot to check it.
@@ -676,20 +735,75 @@ export default function CameraExplorer() {
         </>
       )}
 
-      {!live && usersOpen && (
+      {!live && !signedIn && (
+        <main className="flex h-full flex-col items-center justify-center overflow-y-auto px-6 py-8">
+          <form
+            className="flex w-full max-w-sm flex-col gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const match = usersState.users.find((u) => email.toLowerCase().startsWith(u.name.toLowerCase()));
+              if (match) changeUsers({ ...usersState, activeId: match.id });
+              setSignedIn(true);
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon-192.png" alt="" width={72} height={72} className="mx-auto rounded-2xl" />
+            <h1 className="text-center text-3xl font-semibold">Outlens</h1>
+            <p className="text-center text-white/80">Sign in to your lens</p>
+            <label className="flex flex-col gap-1">
+              <span className="font-semibold">Email</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="off"
+                className="min-h-12 rounded-lg bg-white px-3 text-[#0E1624]"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="font-semibold">Password</span>
+              <input type="password" defaultValue="demo-password" autoComplete="off" className="min-h-12 rounded-lg bg-white px-3 text-[#0E1624]" />
+            </label>
+            <button type="submit" className="min-h-12 rounded-xl bg-[#F5B841] px-6 font-semibold text-[#0E1624]">
+              Sign in
+            </button>
+            <div className="flex flex-wrap justify-center gap-x-4">
+              {usersState.users.map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  onClick={() => setEmail(`${u.name.toLowerCase()}@outlens.demo`)}
+                  className="min-h-12 text-[#4DA3FF] underline underline-offset-4"
+                >
+                  Demo: {u.name}
+                </button>
+              ))}
+            </div>
+            <p className="text-center text-base text-white/70">
+              Demo sign-in: no account is created, and nothing you type is stored or sent.
+            </p>
+          </form>
+        </main>
+      )}
+
+      {!live && signedIn && usersOpen && (
         <main className="flex h-full flex-col items-center overflow-y-auto px-4 py-8">
           <UserPanel state={usersState} onChange={changeUsers} onClose={() => setUsersOpen(false)} />
         </main>
       )}
 
-      {!live && !usersOpen && (
+      {!live && signedIn && !usersOpen && (
         <main className="flex h-full flex-col items-center justify-center gap-6 overflow-y-auto px-6 py-8 text-center">
-          <h1 className="text-3xl font-semibold">{message?.title ?? "Explore colors"}</h1>
+          {!message && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src="/icon-192.png" alt="" width={96} height={96} className="rounded-3xl shadow-[0_0_40px_rgba(77,163,255,0.45)]" />
+          )}
+          <h1 className="text-3xl font-semibold">{message?.title ?? "Put on your lens"}</h1>
           <p className="max-w-md leading-relaxed text-white/85">
             {status === "starting"
               ? "Waiting for camera permission… Look for the prompt near the address bar."
               : (message?.body ??
-                "Point your camera at something and tap it to see its outline, an estimated color, and its name. Nothing is saved. Only a small crop of what you tap is sent, to name it.")}
+                "On glasses, this is what you'd see. Here, your phone's camera stands in: look at something, tap it, and Outlens outlines it, names it, tells you its color, then shows it in colors you can tell apart.")}
           </p>
           {status !== "starting" && (
             <button
@@ -697,7 +811,7 @@ export default function CameraExplorer() {
               onClick={startCamera}
               className="min-h-12 rounded-xl bg-[#F5B841] px-6 font-semibold text-[#0E1624] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
             >
-              {status === "idle" ? "Start camera" : "Try again"}
+              {status === "idle" ? "Open the lens" : "Try again"}
             </button>
           )}
           {status !== "starting" && (
