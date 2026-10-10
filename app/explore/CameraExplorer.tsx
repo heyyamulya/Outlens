@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type PointerEvent } from "react";
 import { estimateColor, pixelsInCircle, type ColorEstimate } from "@/lib/color";
 import { circlePoints, elbowLine, outerLoop, placeCallout, type Box } from "@/lib/callout";
 import { coverView, drawCalloutLine, drawShape, type Shape } from "@/lib/drawOutline";
@@ -12,6 +12,8 @@ import { outlineFromMask, type Frame, type OutlineResult, type Point } from "@/l
 import { colorMaskAt } from "@/lib/colorRegion";
 import { colorPhrase, prepareSpeech, speak } from "@/lib/speak";
 import { cropAround, describeCrop, type ObjectInfo } from "@/lib/crop";
+import { CVD_LABELS, SIMULATION, applyMatrix, enhancementMatrix, svgMatrixValues, type CvdType } from "@/lib/cvd";
+import { enhancementType, parseProfile, profileSnapshot, saveProfile, subscribeProfile, type Profile } from "@/lib/profile";
 
 type Status = "idle" | "starting" | "live" | "denied" | "no-camera" | "busy" | "unsupported" | "error";
 
@@ -123,6 +125,44 @@ function chipText(working: boolean, note: string | null): string | null {
   return null;
 }
 
+const PROFILE_OPTIONS: { type: Profile["type"]; title: string; body: string }[] = [
+  { type: "deutan", title: "Red-green: green-weak (deutan)", body: "The most common type. Red, green, brown and orange can look alike." },
+  { type: "protan", title: "Red-green: red-weak (protan)", body: "Reds can look darker, and red and green are easy to mix up." },
+  { type: "tritan", title: "Blue-yellow (tritan)", body: "Blue and green, or yellow and pink, can look alike." },
+  { type: "unsure", title: "Not sure", body: "We'll start with the most common type. You can change it anytime." },
+];
+
+const SIM_ORDER: (CvdType | null)[] = [null, "deutan", "protan", "tritan"];
+
+function ProfilePicker({ current, onPick, onCancel }: { current: Profile | null; onPick: (p: Profile) => void; onCancel?: () => void }) {
+  return (
+    <div className="mx-auto flex w-full max-w-md flex-col gap-3 text-left">
+      <h1 className="text-center text-2xl font-semibold">Which describes your color vision?</h1>
+      <p className="text-center text-white/80">Outlens uses this to show colors in a way that&apos;s easier for you to tell apart.</p>
+      {PROFILE_OPTIONS.map((o) => (
+        <button
+          key={o.type}
+          type="button"
+          onClick={() => onPick({ type: o.type })}
+          aria-pressed={current?.type === o.type}
+          className={`min-h-12 rounded-xl border-2 px-4 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF] ${
+            current?.type === o.type ? "border-[#F5B841] bg-white/10" : "border-white/25 bg-white/5 hover:bg-white/10"
+          }`}
+        >
+          <span className="block font-semibold">{o.title}</span>
+          <span className="block text-white/75">{o.body}</span>
+        </button>
+      ))}
+      <p className="text-center text-white/70">Saved only on this device. Not a diagnosis; for that, see an eye doctor.</p>
+      {onCancel && (
+        <button type="button" onClick={onCancel} className="mx-auto min-h-12 px-4 text-[#4DA3FF] underline underline-offset-4">
+          Cancel
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function CameraExplorer() {
   const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -130,7 +170,7 @@ export default function CameraExplorer() {
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const ringRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLDivElement>(null);
-  const homeRef = useRef<HTMLAnchorElement>(null);
+  const homeRef = useRef<HTMLDivElement>(null); // top-left tools: Home, See as, Profile
   const chipRef = useRef<HTMLParagraphElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null); // frozen: hint and Resume button
   const hintRef = useRef<HTMLParagraphElement>(null); // live: hint only
@@ -139,6 +179,7 @@ export default function CameraExplorer() {
   const frameRef = useRef<Frame | null>(null);
   const workingRef = useRef(false);
   const tapIdRef = useRef(0); // so a late Gemini answer can't land on a newer selection
+  const enhancedCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const [status, setStatus] = useState<Status>("idle");
   const [frozen, setFrozen] = useState(false);
@@ -146,6 +187,38 @@ export default function CameraExplorer() {
   const [shape, setShape] = useState<Shape | null>(null);
   const [reading, setReading] = useState<Reading | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  // The profile is read from this browser after the page loads (null on the server).
+  const profile = parseProfile(useSyncExternalStore(subscribeProfile, profileSnapshot, () => null));
+  const profileLoaded = useSyncExternalStore(subscribeProfile, () => true, () => false);
+  const [choosingProfile, setChoosingProfile] = useState(false);
+  const [simulate, setSimulate] = useState<CvdType | null>(null); // "See as" simulation
+  const [enhanced, setEnhanced] = useState(false); // selected object shown in the user's colors
+
+  function pickProfile(p: Profile) {
+    saveProfile(p);
+    setChoosingProfile(false);
+    setEnhanced(false);
+  }
+
+  /** Recolors the frozen frame for the user's type, then shows it inside the outline. */
+  function toggleEnhanced() {
+    if (enhanced) {
+      setEnhanced(false);
+      return;
+    }
+    const source = frameCanvasRef.current;
+    if (!source || !source.width) return;
+    const canvas = (enhancedCanvasRef.current ??= document.createElement("canvas"));
+    canvas.width = source.width;
+    canvas.height = source.height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+    ctx.drawImage(source, 0, 0);
+    const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    applyMatrix(image.data, enhancementMatrix(enhancementType(profile)));
+    ctx.putImageData(image, 0, 0);
+    setEnhanced(true);
+  }
 
   // Attach the stream once the video is visible (iPhone only autoplays visible video).
   useEffect(() => {
@@ -175,7 +248,7 @@ export default function CameraExplorer() {
       if (!stage || !overlay) return;
       const { width, height } = stage.getBoundingClientRect();
       const view = frame ? coverView(width, height, frame.width, frame.height) : null;
-      drawShape(overlay, shape, view, width, height);
+      drawShape(overlay, shape, view, width, height, enhanced ? enhancedCanvasRef.current : null);
 
       const ring = ringRef.current;
       const label = labelRef.current;
@@ -216,7 +289,7 @@ export default function CameraExplorer() {
     place();
     window.addEventListener("resize", place);
     return () => window.removeEventListener("resize", place);
-  }, [shape, reading, note, working]);
+  }, [shape, reading, note, working, enhanced, simulate]);
 
   async function startCamera() {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -290,6 +363,7 @@ export default function CameraExplorer() {
         around = circlePoints(point, radius);
       }
 
+      setEnhanced(false);
       // Name the object with Gemini: only a small crop around the selection, only now.
       const tapId = ++tapIdRef.current;
       const image = estimate ? cropAround(frameCanvas, around) : null;
@@ -316,6 +390,7 @@ export default function CameraExplorer() {
   /** Close button: removes the outline and label; the picture stays frozen for another tap. */
   function clearSelection() {
     tapIdRef.current++;
+    setEnhanced(false);
     setShape(null);
     setReading(null);
     setNote(null);
@@ -323,6 +398,7 @@ export default function CameraExplorer() {
 
   function resume() {
     tapIdRef.current++;
+    setEnhanced(false);
     frameRef.current = null;
     const frameCanvas = frameCanvasRef.current;
     if (frameCanvas) {
@@ -342,9 +418,20 @@ export default function CameraExplorer() {
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#0E1624] text-lg text-white">
+      {/* "See as" simulations, applied to the camera view only (not to labels or buttons). */}
+      <svg aria-hidden width="0" height="0" className="absolute">
+        <defs>
+          {(Object.keys(SIMULATION) as CvdType[]).map((t) => (
+            <filter key={t} id={`cvd-sim-${t}`} colorInterpolationFilters="linearRGB">
+              <feColorMatrix type="matrix" values={svgMatrixValues(SIMULATION[t])} />
+            </filter>
+          ))}
+        </defs>
+      </svg>
       <div
         ref={stageRef}
         className={`absolute inset-0 touch-manipulation ${live ? "" : "hidden"}`}
+        style={simulate ? { filter: `url(#cvd-sim-${simulate})` } : undefined}
         onPointerUp={live ? handleTap : undefined}
       >
         <video
@@ -391,6 +478,17 @@ export default function CameraExplorer() {
                   {reading.object?.description && (
                     <span className="text-[#0E1624]/70">{reading.object.description}</span>
                   )}
+                  {!reading.identifying && (
+                    <button
+                      type="button"
+                      onClick={toggleEnhanced}
+                      aria-pressed={enhanced}
+                      className="-ml-1 mt-1 min-h-12 self-start rounded-full px-1 text-left font-semibold text-[#1F6FD1] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+                    >
+                      {enhanced ? "Show original colors" : "Show in my colors"}
+                      {enhanced && <span className="block text-base font-normal text-[#0E1624]/60">Enhanced (approximate)</span>}
+                    </button>
+                  )}
                 </span>
                 <button
                   type="button"
@@ -418,19 +516,44 @@ export default function CameraExplorer() {
             </>
           )}
 
-          <Link
-            ref={homeRef}
-            href="/"
-            className="absolute left-4 top-4 flex min-h-12 items-center rounded-xl bg-[#0E1624]/90 px-4 font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
-          >
-            ← Home
-          </Link>
+          <div ref={homeRef} className="absolute left-4 top-4 flex max-w-[13rem] flex-col items-start gap-2">
+            <Link
+              href="/"
+              className="flex min-h-12 items-center rounded-xl bg-[#0E1624]/90 px-4 font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+            >
+              ← Home
+            </Link>
+            <button
+              type="button"
+              onClick={() => setSimulate((cur) => SIM_ORDER[(SIM_ORDER.indexOf(cur) + 1) % SIM_ORDER.length])}
+              aria-label={`See as: ${simulate ? `${CVD_LABELS[simulate].long}, simulation` : "normal view"}. Tap to change.`}
+              className={`min-h-12 rounded-xl px-4 text-left font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF] ${
+                simulate ? "border-2 border-[#F5B841] bg-[#0E1624]/95" : "bg-[#0E1624]/90"
+              }`}
+            >
+              <span aria-hidden>👁 </span>See as: {simulate ? CVD_LABELS[simulate].short : "Normal"}
+              {simulate && <span className="block text-base font-normal text-[#F5B841]">Simulation</span>}
+            </button>
+            <button
+              type="button"
+              onClick={() => setChoosingProfile(true)}
+              className="min-h-12 rounded-xl bg-[#0E1624]/90 px-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+            >
+              My colors: {profile ? (profile.type === "unsure" ? "Not sure" : CVD_LABELS[profile.type].short) : "Set up"}
+            </button>
+          </div>
+
+          {choosingProfile && (
+            <div className="absolute inset-0 z-20 overflow-y-auto bg-[#0E1624]/97 px-4 py-8">
+              <ProfilePicker current={profile} onPick={pickProfile} onCancel={() => setChoosingProfile(false)} />
+            </div>
+          )}
 
           {chip && (
             <p
               ref={chipRef}
               role="status"
-              className="pointer-events-none absolute right-4 top-4 max-w-[calc(100vw-9rem)] rounded-xl border border-[#4DA3FF] bg-[#0E1624]/90 px-4 py-3 text-right"
+              className="pointer-events-none absolute right-4 top-4 max-w-[calc(100vw-15rem)] rounded-xl border border-[#4DA3FF] bg-[#0E1624]/90 px-4 py-3 text-right"
             >
               {chip}
             </p>
@@ -459,14 +582,20 @@ export default function CameraExplorer() {
         </>
       )}
 
-      {!live && (
+      {!live && profileLoaded && (status === "idle" || status === "starting") && (!profile || choosingProfile) && (
+        <main className="flex h-full flex-col items-center justify-center overflow-y-auto px-4 py-8">
+          <ProfilePicker current={profile} onPick={pickProfile} onCancel={profile ? () => setChoosingProfile(false) : undefined} />
+        </main>
+      )}
+
+      {!live && !(profileLoaded && (status === "idle" || status === "starting") && (!profile || choosingProfile)) && (
         <main className="flex h-full flex-col items-center justify-center gap-6 px-6 text-center">
           <h1 className="text-3xl font-semibold">{message?.title ?? "Explore colors"}</h1>
           <p className="max-w-md leading-relaxed text-white/85">
             {status === "starting"
               ? "Waiting for camera permission… Look for the prompt near the address bar."
               : (message?.body ??
-                "Point your camera at something and tap it to see its outline and an estimated color name. Nothing is saved or uploaded.")}
+                "Point your camera at something and tap it to see its outline, an estimated color, and its name. Nothing is saved. Only a small crop of what you tap is sent, to name it.")}
           </p>
           {status !== "starting" && (
             <button
@@ -475,6 +604,11 @@ export default function CameraExplorer() {
               className="min-h-12 rounded-xl bg-[#F5B841] px-6 font-semibold text-[#0E1624] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
             >
               {status === "idle" ? "Start camera" : "Try again"}
+            </button>
+          )}
+          {profile && status !== "starting" && (
+            <button type="button" onClick={() => setChoosingProfile(true)} className="min-h-12 px-4 text-[#4DA3FF] underline underline-offset-4">
+              My colors: {profile.type === "unsure" ? "Not sure" : CVD_LABELS[profile.type].short} (change)
             </button>
           )}
           <Link href="/" className="flex min-h-12 items-center text-[#4DA3FF] underline underline-offset-4">

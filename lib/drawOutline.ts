@@ -54,6 +54,7 @@ export function drawShape(
   view: View | null,
   width: number,
   height: number,
+  fill?: HTMLCanvasElement | null, // optional recolored frame, shown only inside the shape
 ) {
   const dpr = window.devicePixelRatio || 1;
   const pixelWidth = Math.round(width * dpr);
@@ -69,6 +70,15 @@ export function drawShape(
   if (!shape || !view) return;
 
   const path = shapePath(shape, view);
+
+  // Enhanced colors: draw the recolored frame, clipped to the inside of the shape.
+  if (fill && fill.width && fill.height) {
+    ctx.save();
+    ctx.clip(path, "evenodd");
+    ctx.drawImage(fill, view.offsetX, view.offsetY, fill.width * view.scale, fill.height * view.scale);
+    ctx.restore();
+  }
+
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
 
