@@ -10,6 +10,7 @@ import { outlineFromMask, type Frame, type OutlineResult, type Point } from "@/l
 // lib/segmenter.ts is switched off: in 1.0.1 its GPU mode returned empty masks and its
 // CPU mode took about 12 s per tap on a laptop.
 import { colorMaskAt } from "@/lib/colorRegion";
+import { colorPhrase, prepareSpeech, speak } from "@/lib/speak";
 
 type Status = "idle" | "starting" | "live" | "denied" | "no-camera" | "busy" | "unsupported" | "error";
 
@@ -146,6 +147,11 @@ export default function CameraExplorer() {
     video.srcObject = streamRef.current;
     video.play().catch(() => {}); // autoplay normally starts it; this is a backup
   }, [status]);
+
+  // When a label appears, get its spoken version ready so Listen can play it instantly.
+  useEffect(() => {
+    if (reading) prepareSpeech(colorPhrase(reading.estimate.name));
+  }, [reading]);
 
   // Turn the camera off when leaving the page.
   useEffect(() => () => stopStream(streamRef.current), []);
@@ -321,7 +327,7 @@ export default function CameraExplorer() {
           playsInline
           muted
           autoPlay
-          aria-label="Live camera. Tap anything to outline it and estimate its color."
+          aria-label="Live camera. Tap a solid object to outline it and estimate its color."
         />
         {/* The frozen frame, drawn the same way as the video so taps and outline line up. */}
         <canvas
@@ -355,6 +361,18 @@ export default function CameraExplorer() {
                 <span role="status" className="font-medium">
                   {reading.estimate.label}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => speak(colorPhrase(reading.estimate.name))}
+                  aria-label="Listen"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-[#0E1624]/75 hover:bg-[#0E1624]/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+                >
+                  <svg aria-hidden viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none" />
+                    <path d="M16.5 8.5a5 5 0 0 1 0 7" />
+                    <path d="M19 6a8.5 8.5 0 0 1 0 12" />
+                  </svg>
+                </button>
                 <button
                   type="button"
                   onClick={clearSelection}
@@ -402,7 +420,7 @@ export default function CameraExplorer() {
             <p
               ref={hintRef}
               className="pointer-events-none absolute inset-x-4 bottom-6 mx-auto w-fit rounded-xl bg-[#0E1624]/90 px-4 py-3 text-center">
-              Tap anything to outline it and estimate its color.
+              Tap a solid object. Works best on single-color things, not glass, water, or thin parts.
             </p>
           )}
         </>
