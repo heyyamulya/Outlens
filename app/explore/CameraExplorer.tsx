@@ -614,10 +614,20 @@ export default function CameraExplorer() {
                       aria-pressed={enhanced}
                       className="-ml-1 mt-1 min-h-12 self-start rounded-full px-1 text-left font-semibold text-[#1F6FD1] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
                     >
-                      {enhanced ? "Show original colors" : `Show in ${user.name}'s colors`}
-                      {enhanced && <span className="block text-base font-normal text-[#0E1624]/60">Enhanced (approximate)</span>}
+                      {enhanced ? "Show without boost" : `✨ Boost colors for ${user.name}`}
+                      {enhanced && <span className="block text-base font-normal text-[#0E1624]/60">Boosted (approximate)</span>}
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewMode((m) => (m === "user" ? "normal" : "user"));
+                      setEnhanced(false);
+                    }}
+                    className="-ml-1 min-h-12 self-start rounded-full px-1 text-left font-semibold text-[#1F6FD1] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+                  >
+                    {viewMode === "user" ? "👁 See in actual vision" : `👁 See in ${user.name}'s vision`}
+                  </button>
                 </span>
                 <button
                   type="button"
