@@ -11,6 +11,7 @@ Next.js on Vercel. MediaPipe in the browser. Server routes for Gemini and Eleven
 - Always say 'estimated'. No food-safety, ripeness certainty, or medical claims.
 - Traffic lights only as a labeled SIMULATION.
 - Never store camera images. Send only a cropped selection to Gemini, only on selection.
+- MediaPipe runs on the device and never sends images, but it sends usage/performance metrics to Google. Mention this in the privacy note (Stage 7).
 - Tap must always work; pinch is an extra.
 - Never rely on color alone in the UI. Avoid red/green. Use blue + amber + neutral.
 - The label's color swatch shows sampled camera content, not UI color, so it is exempt from the red/green rule. The text must always carry the full meaning.
@@ -19,6 +20,7 @@ Next.js on Vercel. MediaPipe in the browser. Server routes for Gemini and Eleven
 
 ## Stages
 0 deploy; 1 camera+tap+color; 2 outline; 3 callout; 4 voice; 5 Gemini; 6 pinch; 7 landing+domain+polish; 8 submit
+- Stage 7 todo: revisit the freeze on tap (e.g. auto-resume after a few seconds, or resume when the label is closed).
 
 ## Status
 (update after each stage)
