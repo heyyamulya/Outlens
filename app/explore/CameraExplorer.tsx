@@ -690,8 +690,10 @@ export default function CameraExplorer() {
               className="min-h-12 rounded-xl bg-[#0E1624]/90 px-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
             >
               <span aria-hidden>👁 </span>
-              {viewMode === "user" ? `${user.name}'s eyes` : "Normal view"}
-              <span className="block text-base text-[#F5B841]">{viewMode === "user" ? "Simulation · tap for normal" : `Tap for ${user.name}'s eyes`}</span>
+              {viewMode === "user" ? "Switch to actual vision" : `Switch to ${user.name}'s vision`}
+              <span className="block text-base text-[#F5B841]">
+                {viewMode === "user" ? `Now: ${user.name}'s vision (simulation)` : "Now: actual vision"}
+              </span>
             </button>
           </div>
           )}
