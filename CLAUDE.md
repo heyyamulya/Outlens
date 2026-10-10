@@ -23,3 +23,4 @@ Next.js on Vercel. MediaPipe in the browser. Server routes for Gemini and Eleven
 ## Status
 (update after each stage)
 - Stage 0: done. Next.js 16.4.0 placeholder page deployed. Repo: https://github.com/heyyamulya/Outlens. Live: https://outlens-one.vercel.app
+- Stage 1: done. /explore has the live camera, tap, and estimated color label with swatch. Tested on laptop and phone (rear camera works). Known: white can read as gray or light orange in some lighting (camera white balance); tuning skipped for now.
