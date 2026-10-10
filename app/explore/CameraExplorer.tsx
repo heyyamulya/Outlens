@@ -12,8 +12,8 @@ import { outlineFromMask, type Frame, type OutlineResult, type Point } from "@/l
 import { colorMaskAt } from "@/lib/colorRegion";
 import { colorPhrase, prepareSpeech, speak } from "@/lib/speak";
 import { cropAround, describeCrop, type ObjectInfo } from "@/lib/crop";
-import { CVD_LABELS, SIMULATION, applyMatrix, enhancementMatrix, svgMatrixValues, type CvdType } from "@/lib/cvd";
-import { enhancementType, parseProfile, profileSnapshot, saveProfile, subscribeProfile, type Profile } from "@/lib/profile";
+import { CVD_LABELS, SIMULATION, applyMatrix, enhancementMatrix, multiply, svgMatrixValues, type CvdType } from "@/lib/cvd";
+import { DEFAULT_USERS_JSON, activeUser, addUser, parseUsers, saveUsers, subscribeUsers, usersSnapshot, type UsersState } from "@/lib/profile";
 
 type Status = "idle" | "starting" | "live" | "denied" | "no-camera" | "busy" | "unsupported" | "error";
 
@@ -127,38 +127,93 @@ function chipText(working: boolean, note: string | null): string | null {
   return null;
 }
 
-const PROFILE_OPTIONS: { type: Profile["type"]; title: string; body: string }[] = [
-  { type: "deutan", title: "Red-green: green-weak (deutan)", body: "The most common type. Red, green, brown and orange can look alike." },
-  { type: "protan", title: "Red-green: red-weak (protan)", body: "Reds can look darker, and red and green are easy to mix up." },
-  { type: "tritan", title: "Blue-yellow (tritan)", body: "Blue and green, or yellow and pink, can look alike." },
-  { type: "unsure", title: "Not sure", body: "We'll start with the most common type. You can change it anytime." },
-];
+const TYPE_HINTS: Record<CvdType, string> = {
+  deutan: "Most common. Red, green, brown and orange can look alike.",
+  protan: "Reds look darker; red and green are easy to mix up.",
+  tritan: "Blue and green, or yellow and pink, can look alike.",
+};
 
-const SIM_ORDER: (CvdType | null)[] = [null, "deutan", "protan", "tritan"];
-
-function ProfilePicker({ current, onPick, onCancel }: { current: Profile | null; onPick: (p: Profile) => void; onCancel?: () => void }) {
+/** Who is using Outlens: pick a user, or add one (name + type). Saved only on this device. */
+function UserPanel({ state, onChange, onClose }: { state: UsersState; onChange: (s: UsersState) => void; onClose?: () => void }) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [type, setType] = useState<CvdType>("deutan");
+  const btn =
+    "min-h-12 rounded-xl border-2 px-4 py-2 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]";
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-3 text-left">
-      <h1 className="text-center text-2xl font-semibold">Which describes your color vision?</h1>
-      <p className="text-center text-white/80">Outlens uses this to show colors in a way that&apos;s easier for you to tell apart.</p>
-      {PROFILE_OPTIONS.map((o) => (
+      <h2 className="text-center text-2xl font-semibold">Who&apos;s looking?</h2>
+      <p className="text-center text-white/80">Outlens shows the world through this person&apos;s eyes, then helps with the colors they mix up.</p>
+      {state.users.map((u) => (
         <button
-          key={o.type}
+          key={u.id}
           type="button"
-          onClick={() => onPick({ type: o.type })}
-          aria-pressed={current?.type === o.type}
-          className={`min-h-12 rounded-xl border-2 px-4 py-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF] ${
-            current?.type === o.type ? "border-[#F5B841] bg-white/10" : "border-white/25 bg-white/5 hover:bg-white/10"
-          }`}
+          onClick={() => {
+            onChange({ ...state, activeId: u.id });
+            onClose?.();
+          }}
+          aria-pressed={u.id === state.activeId}
+          className={`${btn} ${u.id === state.activeId ? "border-[#F5B841] bg-white/10" : "border-white/25 bg-white/5 hover:bg-white/10"}`}
         >
-          <span className="block font-semibold">{o.title}</span>
-          <span className="block text-white/75">{o.body}</span>
+          <span className="block font-semibold">
+            <span aria-hidden>👤 </span>
+            {u.name}
+          </span>
+          <span className="block text-white/80">{CVD_LABELS[u.type].long}</span>
         </button>
       ))}
-      <p className="text-center text-white/70">Saved only on this device. Not a diagnosis; for that, see an eye doctor.</p>
-      {onCancel && (
-        <button type="button" onClick={onCancel} className="mx-auto min-h-12 px-4 text-[#4DA3FF] underline underline-offset-4">
-          Cancel
+      {adding ? (
+        <form
+          className="flex flex-col gap-3 rounded-xl border-2 border-white/25 p-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            onChange(addUser(state, name, type));
+            setAdding(false);
+            setName("");
+            onClose?.();
+          }}
+        >
+          <label className="flex flex-col gap-1">
+            <span className="font-semibold">Name</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              maxLength={20}
+              required
+              className="min-h-12 rounded-lg bg-white px-3 text-[#0E1624]"
+            />
+          </label>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-1 font-semibold">Color vision</legend>
+            {(Object.keys(TYPE_HINTS) as CvdType[]).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setType(t)}
+                aria-pressed={type === t}
+                className={`${btn} ${type === t ? "border-[#F5B841] bg-white/10" : "border-white/20"}`}
+              >
+                <span className="block font-semibold">{CVD_LABELS[t].long}</span>
+                <span className="block text-base text-white/75">{TYPE_HINTS[t]}</span>
+              </button>
+            ))}
+          </fieldset>
+          <button type="submit" className="min-h-12 rounded-xl bg-[#F5B841] px-6 font-semibold text-[#0E1624]">
+            Save user
+          </button>
+          <button type="button" onClick={() => setAdding(false)} className="min-h-12 text-[#4DA3FF] underline underline-offset-4">
+            Cancel
+          </button>
+        </form>
+      ) : (
+        <button type="button" onClick={() => setAdding(true)} className={`${btn} border-dashed border-white/40`}>
+          + Add a user
+        </button>
+      )}
+      <p className="text-center text-base text-white/70">Saved only on this device. Not a diagnosis; for that, see an eye doctor.</p>
+      {onClose && (
+        <button type="button" onClick={onClose} className="mx-auto min-h-12 px-4 text-[#4DA3FF] underline underline-offset-4">
+          Close
         </button>
       )}
     </div>
@@ -172,7 +227,7 @@ export default function CameraExplorer() {
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const ringRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLDivElement>(null);
-  const homeRef = useRef<HTMLDivElement>(null); // top-left tools: Home, See as, Profile
+  const homeRef = useRef<HTMLDivElement>(null); // top-left tools: Home, user, view
   const chipRef = useRef<HTMLParagraphElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null); // frozen: hint and Resume button
   const hintRef = useRef<HTMLParagraphElement>(null); // live: hint only
@@ -190,13 +245,19 @@ export default function CameraExplorer() {
   const [shape, setShape] = useState<Shape | null>(null);
   const [reading, setReading] = useState<Reading | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  // The profile is read from this browser after the page loads (null on the server).
-  const profile = parseProfile(useSyncExternalStore(subscribeProfile, profileSnapshot, () => null));
-  const profileLoaded = useSyncExternalStore(subscribeProfile, () => true, () => false);
-  const [choosingProfile, setChoosingProfile] = useState(false);
-  const [simulate, setSimulate] = useState<CvdType | null>(null); // "See as" simulation
+  // Users live in this browser only (two demo users until someone changes them).
+  const usersState = parseUsers(useSyncExternalStore(subscribeUsers, usersSnapshot, () => DEFAULT_USERS_JSON));
+  const user = activeUser(usersState);
+  const [usersOpen, setUsersOpen] = useState(false);
+  // "user": the camera shows the world through the active user's eyes (a simulation).
+  const [viewMode, setViewMode] = useState<"user" | "normal">("user");
+  const simulate: CvdType | null = viewMode === "user" ? user.type : null;
   const [enhanced, setEnhanced] = useState(false); // selected object shown in the user's colors
-  const [shareOpen, setShareOpen] = useState(false); // "Share what I see" panel
+
+  function changeUsers(next: UsersState) {
+    saveUsers(next);
+    setEnhanced(false);
+  }
 
   /** Asks Gemini for a longer description of the same crop (only when the user taps it). */
   function moreDetail() {
@@ -212,13 +273,11 @@ export default function CameraExplorer() {
     });
   }
 
-  function pickProfile(p: Profile) {
-    saveProfile(p);
-    setChoosingProfile(false);
-    setEnhanced(false);
-  }
-
-  /** Recolors the frozen frame for the user's type, then shows it inside the outline. */
+  /**
+   * Recolors the frozen frame for the user's type and shows it inside the outline. In the
+   * user's view it is also passed through their simulation, so viewers see what it looks
+   * like to them.
+   */
   function toggleEnhanced() {
     if (enhanced) {
       setEnhanced(false);
@@ -233,7 +292,8 @@ export default function CameraExplorer() {
     if (!ctx) return;
     ctx.drawImage(source, 0, 0);
     const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    applyMatrix(image.data, enhancementMatrix(enhancementType(profile)));
+    const enhance = enhancementMatrix(user.type);
+    applyMatrix(image.data, simulate ? multiply(SIMULATION[simulate], enhance) : enhance);
     ctx.putImageData(image, 0, 0);
     setEnhanced(true);
   }
@@ -515,7 +575,7 @@ export default function CameraExplorer() {
                       aria-pressed={enhanced}
                       className="-ml-1 mt-1 min-h-12 self-start rounded-full px-1 text-left font-semibold text-[#1F6FD1] underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
                     >
-                      {enhanced ? "Show original colors" : "Show in my colors"}
+                      {enhanced ? "Show original colors" : `Show in ${user.name}'s colors`}
                       {enhanced && <span className="block text-base font-normal text-[#0E1624]/60">Enhanced (approximate)</span>}
                     </button>
                   )}
@@ -556,52 +616,30 @@ export default function CameraExplorer() {
             <p className="rounded-xl bg-[#0E1624]/80 px-3 py-1 text-base text-white/85">Glasses view · phone preview</p>
             <button
               type="button"
-              onClick={() => setShareOpen((o) => !o)}
-              aria-expanded={shareOpen}
-              className={`min-h-12 rounded-xl px-4 text-left font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF] ${
-                simulate ? "border-2 border-[#F5B841] bg-[#0E1624]/95" : "bg-[#0E1624]/90"
-              }`}
+              onClick={() => setUsersOpen(true)}
+              className="min-h-12 rounded-xl border-2 border-[#F5B841] bg-[#0E1624]/95 px-4 text-left font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
             >
-              <span aria-hidden>👁 </span>Share what I see
-              {simulate && (
-                <span className="block text-base font-normal text-[#F5B841]">Simulation: {CVD_LABELS[simulate].short}</span>
-              )}
+              <span aria-hidden>👤 </span>
+              {user.name} ▾<span className="block text-base font-normal text-white/80">{CVD_LABELS[user.type].short}</span>
             </button>
-            {shareOpen && (
-              <div className="flex w-[min(20rem,calc(100vw-2rem))] flex-col gap-2 rounded-xl bg-[#0E1624]/97 p-3 shadow-lg">
-                <p className="text-base text-white/80">
-                  Show friends, family or teachers how this view looks with color blindness. This is a simulation.
-                </p>
-                {SIM_ORDER.map((t) => (
-                  <button
-                    key={t ?? "normal"}
-                    type="button"
-                    onClick={() => setSimulate(t)}
-                    aria-pressed={simulate === t}
-                    className={`min-h-12 rounded-lg border-2 px-3 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF] ${
-                      simulate === t ? "border-[#F5B841] bg-white/10" : "border-white/20"
-                    }`}
-                  >
-                    {t ? CVD_LABELS[t].long : "Normal view"}
-                  </button>
-                ))}
-                <button type="button" onClick={() => setShareOpen(false)} className="min-h-12 text-[#4DA3FF] underline underline-offset-4">
-                  Done
-                </button>
-              </div>
-            )}
             <button
               type="button"
-              onClick={() => setChoosingProfile(true)}
+              onClick={() => {
+                setViewMode((m) => (m === "user" ? "normal" : "user"));
+                setEnhanced(false);
+              }}
+              aria-pressed={viewMode === "user"}
               className="min-h-12 rounded-xl bg-[#0E1624]/90 px-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
             >
-              My colors: {profile ? (profile.type === "unsure" ? "Not sure" : CVD_LABELS[profile.type].short) : "Set up"}
+              <span aria-hidden>👁 </span>
+              {viewMode === "user" ? `${user.name}'s eyes` : "Normal view"}
+              <span className="block text-base text-[#F5B841]">{viewMode === "user" ? "Simulation · tap for normal" : `Tap for ${user.name}'s eyes`}</span>
             </button>
           </div>
 
-          {choosingProfile && (
+          {usersOpen && (
             <div className="absolute inset-0 z-20 overflow-y-auto bg-[#0E1624]/97 px-4 py-8">
-              <ProfilePicker current={profile} onPick={pickProfile} onCancel={() => setChoosingProfile(false)} />
+              <UserPanel state={usersState} onChange={changeUsers} onClose={() => setUsersOpen(false)} />
             </div>
           )}
 
@@ -638,14 +676,14 @@ export default function CameraExplorer() {
         </>
       )}
 
-      {!live && profileLoaded && (status === "idle" || status === "starting") && (!profile || choosingProfile) && (
-        <main className="flex h-full flex-col items-center justify-center overflow-y-auto px-4 py-8">
-          <ProfilePicker current={profile} onPick={pickProfile} onCancel={profile ? () => setChoosingProfile(false) : undefined} />
+      {!live && usersOpen && (
+        <main className="flex h-full flex-col items-center overflow-y-auto px-4 py-8">
+          <UserPanel state={usersState} onChange={changeUsers} onClose={() => setUsersOpen(false)} />
         </main>
       )}
 
-      {!live && !(profileLoaded && (status === "idle" || status === "starting") && (!profile || choosingProfile)) && (
-        <main className="flex h-full flex-col items-center justify-center gap-6 px-6 text-center">
+      {!live && !usersOpen && (
+        <main className="flex h-full flex-col items-center justify-center gap-6 overflow-y-auto px-6 py-8 text-center">
           <h1 className="text-3xl font-semibold">{message?.title ?? "Explore colors"}</h1>
           <p className="max-w-md leading-relaxed text-white/85">
             {status === "starting"
@@ -662,9 +700,13 @@ export default function CameraExplorer() {
               {status === "idle" ? "Start camera" : "Try again"}
             </button>
           )}
-          {profile && status !== "starting" && (
-            <button type="button" onClick={() => setChoosingProfile(true)} className="min-h-12 px-4 text-[#4DA3FF] underline underline-offset-4">
-              My colors: {profile.type === "unsure" ? "Not sure" : CVD_LABELS[profile.type].short} (change)
+          {status !== "starting" && (
+            <button
+              type="button"
+              onClick={() => setUsersOpen(true)}
+              className="min-h-12 rounded-xl border-2 border-white/30 px-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+            >
+              <span aria-hidden>👤 </span>Looking as <strong>{user.name}</strong> · {CVD_LABELS[user.type].short} (change)
             </button>
           )}
           <Link href="/privacy" className="flex min-h-12 items-center text-[#4DA3FF] underline underline-offset-4">

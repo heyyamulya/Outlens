@@ -31,7 +31,8 @@ export const CVD_LABELS: Record<CvdType, { short: string; long: string }> = {
   tritan: { short: "Blue-yellow (tritan)", long: "Blue-yellow: tritanopia" },
 };
 
-function multiply(a: Matrix, b: Matrix): Matrix {
+/** a·b: apply b first, then a. */
+export function multiply(a: Matrix, b: Matrix): Matrix {
   const out = new Array(9).fill(0) as Matrix;
   for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) for (let k = 0; k < 3; k++) out[r * 3 + c] += a[r * 3 + k] * b[k * 3 + c];
   return out;
