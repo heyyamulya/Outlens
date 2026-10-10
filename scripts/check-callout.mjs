@@ -1,5 +1,5 @@
 // Quick check of callout placement with made-up shapes. Run: node scripts/check-callout.mjs
-import { circlePoints, placeCallout } from "../lib/callout.ts";
+import { circlePoints, elbowLine, placeCallout } from "../lib/callout.ts";
 
 const SCREEN = { screenWidth: 390, screenHeight: 844 }; // a phone, in CSS pixels
 const LABEL = { labelWidth: 300, labelHeight: 64 };
@@ -60,6 +60,18 @@ const fmt = (b) => `label ${[b.left, b.top, b.right, b.bottom].map(Math.round)}`
   const edge = circlePoints({ x: 370, y: 420 }, 50);
   const p = placeCallout({ edge, ...LABEL, ...SCREEN, avoid });
   check("right edge: on screen", p && onScreen(p.label), p && fmt(p.label));
+}
+
+// 6. Bent line: slanted from the dot, then level into the side of the label.
+{
+  const label = { left: 200, top: 100, right: 340, bottom: 150 };
+  const pts = elbowLine({ x: 100, y: 300 }, label);
+  const end = pts[pts.length - 1];
+  check("elbow: 3 points", pts.length === 3, `${pts.length} points`);
+  check("elbow: ends on label's left side, centered", end.x === 200 && end.y === 125, `(${end.x}, ${end.y})`);
+  check("elbow: last part is level", pts[1].y === end.y);
+  const left = elbowLine({ x: 500, y: 300 }, label);
+  check("elbow: label on the left -> ends on its right side", left[left.length - 1].x === 340);
 }
 
 console.log(failures ? `\n${failures} difference(s)` : "\nAll checks match.");

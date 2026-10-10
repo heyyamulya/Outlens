@@ -1,5 +1,5 @@
-// Draws the selection on the overlay canvas: a dark halo, a blue line, and a thin
-// white strip just inside the edge, so it shows on both bright and dark scenes.
+// Draws the selection on the overlay canvas: a thin blue line with a soft blue glow, over a
+// faint dark shadow so it still shows on bright and blue scenes.
 
 import type { Point } from "./outline";
 
@@ -9,9 +9,9 @@ export type Shape =
 
 export type View = { scale: number; offsetX: number; offsetY: number };
 
-const HALO = "rgba(14, 22, 36, 0.8)"; // navy
+const SHADOW = "rgba(14, 22, 36, 0.55)"; // navy, soft
 const LINE = "#4DA3FF"; // blue
-const INNER = "#FFFFFF";
+const GLOW = "rgba(77, 163, 255, 0.7)";
 
 /** How a frame maps into a box with object-fit: cover (scaled up, centered, cropped). */
 export function coverView(boxWidth: number, boxHeight: number, frameWidth: number, frameHeight: number): View {
@@ -72,40 +72,43 @@ export function drawShape(
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
 
-  ctx.strokeStyle = HALO;
-  ctx.lineWidth = 12;
+  // Faint dark shadow underneath, for contrast on bright or blue backgrounds.
+  ctx.strokeStyle = SHADOW;
+  ctx.lineWidth = 6;
+  ctx.shadowColor = SHADOW;
+  ctx.shadowBlur = 6;
   ctx.stroke(path);
 
-  // White strip just inside the edge: a wider stroke clipped to the inside of the shape.
-  ctx.save();
-  ctx.clip(path, "evenodd");
-  ctx.strokeStyle = INNER;
-  ctx.lineWidth = 7;
-  ctx.stroke(path);
-  ctx.restore();
-
+  // The blue line with a soft glow.
   ctx.strokeStyle = LINE;
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 3.5;
+  ctx.shadowColor = GLOW;
+  ctx.shadowBlur = 10;
   ctx.stroke(path);
+  ctx.shadowBlur = 0;
 }
 
 /**
- * Draws the callout line from the dot on the object's edge to the label, on top of the shape.
- * Same style as the outline (dark halo, blue line) so it shows on any background.
+ * Draws the callout line through `points` (from the dot to the label), on top of the shape:
+ * thin blue over a faint dark shadow, so it shows on any background.
  */
-export function drawCalloutLine(canvas: HTMLCanvasElement, from: Point, to: Point) {
+export function drawCalloutLine(canvas: HTMLCanvasElement, points: Point[]) {
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
+  if (!ctx || points.length < 2) return;
   const dpr = window.devicePixelRatio || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.lineCap = "round";
+  ctx.lineJoin = "round";
   ctx.beginPath();
-  ctx.moveTo(from.x, from.y);
-  ctx.lineTo(to.x, to.y);
-  ctx.strokeStyle = HALO;
-  ctx.lineWidth = 7;
+  ctx.moveTo(points[0].x, points[0].y);
+  for (const p of points.slice(1)) ctx.lineTo(p.x, p.y);
+  ctx.strokeStyle = SHADOW;
+  ctx.lineWidth = 4;
+  ctx.shadowColor = SHADOW;
+  ctx.shadowBlur = 4;
   ctx.stroke();
   ctx.strokeStyle = LINE;
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 2;
+  ctx.shadowBlur = 0;
   ctx.stroke();
 }

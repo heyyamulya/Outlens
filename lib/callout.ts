@@ -136,3 +136,18 @@ export function circlePoints(center: Point, radius: number, count = 48): Point[]
     return { x: center.x + Math.cos(t) * radius, y: center.y + Math.sin(t) * radius };
   });
 }
+
+/**
+ * The callout line as a bent path: a slanted part from the dot, then a short level part
+ * into the side of the label (like a diagram annotation). Returns the points to draw through.
+ */
+export function elbowLine(dot: Point, label: Box, run = 24): Point[] {
+  const midY = (label.top + label.bottom) / 2;
+  const labelIsRight = dot.x <= (label.left + label.right) / 2;
+  const end = { x: labelIsRight ? label.left : label.right, y: midY };
+  const elbow = { x: end.x + (labelIsRight ? -run : run), y: midY };
+  // If the dot is already level with the label, or past the elbow, a straight line is cleaner.
+  const pastElbow = labelIsRight ? dot.x >= elbow.x : dot.x <= elbow.x;
+  if (Math.abs(dot.y - midY) < 2 || pastElbow) return [dot, end];
+  return [dot, elbow, end];
+}

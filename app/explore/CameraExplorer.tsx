@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 import { estimateColor, pixelsInCircle, type ColorEstimate } from "@/lib/color";
-import { circlePoints, outerLoop, placeCallout, type Box } from "@/lib/callout";
+import { circlePoints, elbowLine, outerLoop, placeCallout, type Box } from "@/lib/callout";
 import { coverView, drawCalloutLine, drawShape, type Shape } from "@/lib/drawOutline";
 import { outlineFromMask, type Frame, type OutlineResult, type Point } from "@/lib/outline";
 // Outlines come from the "magic wand" (colorMaskAt). The MediaPipe segmenter in
@@ -192,9 +192,11 @@ export default function CameraExplorer() {
       if (!placement) return;
       label.style.left = `${placement.label.left}px`;
       label.style.top = `${placement.label.top}px`;
-      ring.style.left = `${placement.dot.x}px`;
-      ring.style.top = `${placement.dot.y}px`;
-      drawCalloutLine(overlay, placement.dot, placement.lineEnd);
+      // The dot marks where you tapped; the line bends into the side of the label.
+      const dot = toScreen(reading.point);
+      ring.style.left = `${dot.x}px`;
+      ring.style.top = `${dot.y}px`;
+      drawCalloutLine(overlay, elbowLine(dot, placement.label));
     };
     place();
     window.addEventListener("resize", place);
@@ -338,24 +340,26 @@ export default function CameraExplorer() {
               <div
                 ref={ringRef}
                 aria-hidden
-                className="pointer-events-none fixed h-8 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-[#F5B841] shadow-[0_0_0_2px_rgba(14,22,36,0.85)]"
+                className="pointer-events-none fixed h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1.5px_rgba(14,22,36,0.7),inset_0_0_0_1.5px_rgba(14,22,36,0.5)]"
               />
               <div
                 ref={labelRef}
-                className="fixed left-0 top-0 flex max-w-[calc(100vw-32px)] items-center gap-3 rounded-xl border border-[#F5B841] bg-[#0E1624]/95 py-1 pl-4 pr-1 font-semibold shadow-lg"
+                className="fixed left-0 top-0 flex max-w-[calc(100vw-32px)] items-center gap-3 rounded-full border-2 border-[#4DA3FF] bg-white py-0.5 pl-3 pr-0.5 text-[#0E1624] shadow-[0_4px_16px_rgba(14,22,36,0.35)]"
               >
                 {/* Swatch shows sampled camera content; the text carries the full meaning. */}
                 <span
                   aria-hidden
-                  className="h-5 w-5 shrink-0 rounded-sm border border-white ring-1 ring-black"
+                  className="h-7 w-7 shrink-0 rounded-full ring-1 ring-[#0E1624]/30"
                   style={{ backgroundColor: `rgb(${reading.estimate.rgb.r} ${reading.estimate.rgb.g} ${reading.estimate.rgb.b})` }}
                 />
-                <span role="status">{reading.estimate.label}</span>
+                <span role="status" className="font-medium">
+                  {reading.estimate.label}
+                </span>
                 <button
                   type="button"
                   onClick={clearSelection}
                   aria-label="Close label"
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-2xl leading-none text-white/85 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-2xl leading-none text-[#0E1624]/55 hover:bg-[#0E1624]/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
                 >
                   <span aria-hidden>✕</span>
                 </button>
