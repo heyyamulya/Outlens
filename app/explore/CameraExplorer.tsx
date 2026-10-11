@@ -15,6 +15,7 @@ import { cropAround, describeCrop, type ObjectInfo } from "@/lib/crop";
 import { CVD_LABELS, SIMULATION, applyMatrix, enhancementMatrix, multiply, svgMatrixValues, type CvdType } from "@/lib/cvd";
 import { createSimRenderer } from "@/lib/simGl";
 import { loadHands, readHand } from "@/lib/pinch";
+import { parseCommand } from "@/lib/voiceCommand";
 import { DEFAULT_USERS_JSON, activeUser, addUser, parseUsers, saveUsers, subscribeUsers, usersSnapshot, type UsersState } from "@/lib/profile";
 
 type Status = "idle" | "starting" | "live" | "denied" | "no-camera" | "busy" | "unsupported" | "error";
@@ -129,6 +130,19 @@ function chipText(working: boolean, note: string | null): string | null {
   if (note) return `Simple shape: ${note}`;
   return null;
 }
+
+// The browser's speech recognition (Web Speech API); only the parts we use.
+type Recognizer = {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  continuous: boolean;
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: ((e: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
 
 // Compact action button in the label (still a 48px tap target).
 const ACTION =
@@ -266,6 +280,12 @@ export default function CameraExplorer() {
   const [controlsHidden, setControlsHidden] = useState(false); // presenting: show only the view
   const [pinchOn, setPinchOn] = useState(false); // pinch to select (prototype), off by default
   const [pinchStatus, setPinchStatus] = useState<"loading" | "ready" | "failed">("loading");
+  const [listening, setListening] = useState(false); // "Ask" is listening for a command
+  const [voiceMsg, setVoiceMsg] = useState<string | null>(null);
+  const recognizerRef = useRef<Recognizer | null>(null);
+  const voiceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runCommandRef = useRef<((text: string) => void) | null>(null);
+  const micRef = useRef<HTMLButtonElement>(null);
   // "user": the camera shows the world through the active user's eyes (a simulation).
   const [viewMode, setViewMode] = useState<"user" | "normal">("user");
   const simulate: CvdType | null = viewMode === "user" ? user.type : null;
@@ -458,7 +478,7 @@ export default function CameraExplorer() {
 
       // Controls the label must not cover.
       const avoid: Box[] = [];
-      for (const el of [homeRef.current, chipRef.current, bottomRef.current, hintRef.current]) {
+      for (const el of [homeRef.current, chipRef.current, bottomRef.current, hintRef.current, micRef.current]) {
         if (!el) continue;
         const r = el.getBoundingClientRect();
         avoid.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
@@ -598,6 +618,7 @@ export default function CameraExplorer() {
     selectAtRef.current = selectAt;
   });
 
+
   /** Close button: removes the outline and label; the picture stays frozen for another tap. */
   function clearSelection() {
     tapIdRef.current++;
@@ -623,9 +644,86 @@ export default function CameraExplorer() {
     setFrozen(false);
   }
 
+  /** Shows a short message in the chip for a few seconds. */
+  function flash(message: string, ms = 3500) {
+    setVoiceMsg(message);
+    if (voiceTimerRef.current) clearTimeout(voiceTimerRef.current);
+    voiceTimerRef.current = setTimeout(() => setVoiceMsg(null), ms);
+  }
+
+  /** Carries out a spoken command (see lib/voiceCommand.ts). */
+  function runCommand(text: string) {
+    const command = parseCommand(text, user.name);
+    if (!command) {
+      flash(`Heard “${text}”. Try “What is this?”, “Boost”, or “Actual vision”.`, 5000);
+      return;
+    }
+    flash(`Heard “${text}”`);
+    const needsObject = ["describe", "boost", "unboost", "more", "close"].includes(command);
+    if (needsObject && !reading) {
+      flash("Tap or pinch an object first.");
+      return;
+    }
+    if (command === "describe" && reading)
+      speak([colorPhrase(reading.estimate.name, reading.object?.name), colorPhrase(reading.estimate.name)]);
+    if (command === "boost" && !enhanced && !reading?.identifying) toggleEnhanced();
+    if (command === "unboost" && enhanced) toggleEnhanced();
+    if (command === "actual") {
+      setViewMode("normal");
+      setEnhanced(false);
+    }
+    if (command === "user") {
+      setViewMode("user");
+      setEnhanced(false);
+    }
+    if (command === "more" && reading?.object && !reading.more) moreDetail();
+    if (command === "resume") resume();
+    if (command === "close") clearSelection();
+  }
+
+  useEffect(() => {
+    runCommandRef.current = runCommand;
+  });
+
+  /** "Ask": listen for one short spoken command. */
+  function ask() {
+    if (listening) {
+      recognizerRef.current?.stop();
+      return;
+    }
+    const w = window as unknown as { SpeechRecognition?: new () => Recognizer; webkitSpeechRecognition?: new () => Recognizer };
+    const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+    if (!Ctor) {
+      flash("Voice commands aren’t available in this browser. Tap still works.", 5000);
+      return;
+    }
+    const rec = new Ctor();
+    rec.lang = "en-US";
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.continuous = false;
+    rec.onresult = (e) => {
+      const text = e.results[0]?.[0]?.transcript ?? "";
+      if (text) runCommandRef.current?.(text);
+    };
+    rec.onerror = (e) =>
+      flash(e.error === "not-allowed" ? "Microphone permission is off for this site." : "Didn’t catch that. Tap 🎤 and try again.");
+    rec.onend = () => setListening(false);
+    recognizerRef.current = rec;
+    setListening(true);
+    setVoiceMsg("Listening… try “What is this?”");
+    try {
+      rec.start();
+    } catch {
+      setListening(false);
+      flash("Couldn’t start the microphone. Tap 🎤 again.");
+    }
+  }
+
   const live = status === "live";
   const message = status in MESSAGES ? MESSAGES[status as keyof typeof MESSAGES] : null;
   const chip =
+    voiceMsg ??
     chipText(working, note) ??
     (pinchOn
       ? pinchStatus === "loading"
@@ -683,6 +781,19 @@ export default function CameraExplorer() {
             style={{ display: "none" }}
             className="pointer-events-none fixed z-10 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#F5B841] shadow-[0_0_0_2px_rgba(14,22,36,0.7)]"
           />
+          {/* Ask: tap, then say a short command. */}
+          <button
+            ref={micRef}
+            type="button"
+            onClick={ask}
+            aria-pressed={listening}
+            aria-label={listening ? "Stop listening" : "Ask with your voice"}
+            className={`absolute right-4 top-1/2 z-10 flex h-14 w-14 -translate-y-1/2 items-center justify-center rounded-full text-2xl shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF] ${
+              listening ? "bg-[#F5B841] text-[#0E1624] ring-4 ring-[#F5B841]/40" : "bg-[#0E1624]/85 text-white"
+            }`}
+          >
+            <span aria-hidden>🎤</span>
+          </button>
 
           {reading && (
             <>
