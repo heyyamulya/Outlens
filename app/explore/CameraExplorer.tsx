@@ -146,7 +146,7 @@ type Recognizer = {
 
 // Compact action button in the label (still a 48px tap target).
 const ACTION =
-  "min-h-12 rounded-full bg-[#0E1624]/[0.07] px-3 font-semibold text-[#0E1624] hover:bg-[#0E1624]/[0.12] aria-pressed:bg-[#4DA3FF]/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]";
+  "min-h-12 rounded-full border border-[#3B82F6]/45 bg-white px-3 font-semibold text-[#2563EB] hover:bg-[#3B82F6]/10 aria-pressed:bg-[#3B82F6]/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]";
 
 const TYPE_HINTS: Record<CvdType, string> = {
   deutan: "Most common. Red, green, brown and orange can look alike.",
@@ -174,7 +174,7 @@ function UserPanel({ state, onChange, onClose }: { state: UsersState; onChange: 
             onClose?.();
           }}
           aria-pressed={u.id === state.activeId}
-          className={`${btn} ${u.id === state.activeId ? "border-[#F5B841] bg-white/10" : "border-white/25 bg-white/5 hover:bg-white/10"}`}
+          className={`${btn} ${u.id === state.activeId ? "border-[#FBBF24] bg-white/10" : "border-white/25 bg-white/5 hover:bg-white/10"}`}
         >
           <span className="block font-semibold">
             <span aria-hidden>👤 </span>
@@ -201,7 +201,7 @@ function UserPanel({ state, onChange, onClose }: { state: UsersState; onChange: 
               onChange={(e) => setName(e.target.value)}
               maxLength={20}
               required
-              className="min-h-12 rounded-lg bg-white px-3 text-[#0E1624]"
+              className="min-h-12 rounded-xl border border-white/30 bg-white/5 px-4 text-white placeholder:text-white/50"
             />
           </label>
           <fieldset className="flex flex-col gap-2">
@@ -212,14 +212,14 @@ function UserPanel({ state, onChange, onClose }: { state: UsersState; onChange: 
                 type="button"
                 onClick={() => setType(t)}
                 aria-pressed={type === t}
-                className={`${btn} ${type === t ? "border-[#F5B841] bg-white/10" : "border-white/20"}`}
+                className={`${btn} ${type === t ? "border-[#FBBF24] bg-white/10" : "border-white/20"}`}
               >
                 <span className="block font-semibold">{CVD_LABELS[t].long}</span>
                 <span className="block text-base text-white/75">{TYPE_HINTS[t]}</span>
               </button>
             ))}
           </fieldset>
-          <button type="submit" className="min-h-12 rounded-xl bg-[#F5B841] px-6 font-semibold text-[#0E1624]">
+          <button type="submit" className="min-h-12 rounded-full bg-[#FBBF24] shadow-[0_6px_20px_rgba(251,191,36,0.3)] px-6 font-semibold text-[#081838]">
             Save user
           </button>
           <button type="button" onClick={() => setAdding(false)} className="min-h-12 text-[#4DA3FF] underline underline-offset-4">
@@ -772,7 +772,7 @@ export default function CameraExplorer() {
       : null);
 
   return (
-    <div className="fixed inset-0 overflow-hidden bg-[#0E1624] text-lg text-white">
+    <div className="fixed inset-0 overflow-hidden bg-[#081838] text-lg text-white">
       {/* Fallback for the user's-eyes view when WebGL is unavailable (works on laptops, not iPhone video). */}
       <svg aria-hidden width="0" height="0" className="absolute">
         <defs>
@@ -817,7 +817,7 @@ export default function CameraExplorer() {
             ref={cursorRef}
             aria-hidden
             style={{ display: "none" }}
-            className="pointer-events-none fixed z-10 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#F5B841] shadow-[0_0_0_2px_rgba(14,22,36,0.7)]"
+            className="pointer-events-none fixed z-10 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#FBBF24] shadow-[0_0_0_2px_rgba(14,22,36,0.7)]"
           />
           {listening && (
             <div aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 h-8 w-8 -translate-x-1/2 -translate-y-1/2">
@@ -833,7 +833,7 @@ export default function CameraExplorer() {
             aria-pressed={listening}
             aria-label={listening ? "Stop listening" : "Ask with your voice"}
             className={`absolute right-4 top-1/2 z-10 flex h-14 w-14 -translate-y-1/2 items-center justify-center rounded-full text-2xl shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF] ${
-              listening ? "bg-[#F5B841] text-[#0E1624] ring-4 ring-[#F5B841]/40" : "bg-[#0E1624]/85 text-white"
+              listening ? "bg-[#FBBF24] text-[#081838] ring-8 ring-[#FBBF24]/35" : "bg-[#FBBF24] text-[#081838] shadow-[0_6px_20px_rgba(251,191,36,0.4)]"
             }`}
           >
             <span aria-hidden>🎤</span>
@@ -848,29 +848,29 @@ export default function CameraExplorer() {
               />
               <div
                 ref={labelRef}
-                className="fixed left-0 top-0 w-[min(19rem,calc(100vw-32px))] rounded-2xl border border-[#4DA3FF]/80 bg-white/75 p-2 pl-3 text-[#0E1624] shadow-[0_4px_16px_rgba(14,22,36,0.25)] backdrop-blur-md"
+                className="fixed left-0 top-0 w-[min(19rem,calc(100vw-32px))] rounded-2xl border border-[#4DA3FF]/80 bg-white/90 p-2 pl-3 text-[#081838] shadow-[0_4px_16px_rgba(14,22,36,0.25)] backdrop-blur-md"
               >
                 <div className="flex items-start gap-2">
                   {/* Swatch shows sampled camera content; the text carries the full meaning. */}
                   <span
                     aria-hidden
-                    className="mt-1.5 h-6 w-6 shrink-0 rounded-full ring-1 ring-[#0E1624]/30"
+                    className="mt-1.5 h-6 w-6 shrink-0 rounded-full ring-1 ring-[#081838]/30"
                     style={{ backgroundColor: `rgb(${reading.estimate.rgb.r} ${reading.estimate.rgb.g} ${reading.estimate.rgb.b})` }}
                   />
                   <div role="status" className="min-w-0 flex-1 py-1 leading-snug">
                     {reading.object && <div className="font-semibold capitalize">{reading.object.name}</div>}
                     <div className="font-medium">{reading.estimate.label}</div>
-                    {reading.identifying && <div className="text-[#0E1624]/60">Identifying…</div>}
-                    {reading.object?.description && <div className="text-[#0E1624]/75">{reading.object.description}</div>}
-                    {reading.more && <div className="mt-1 text-[#0E1624]/85">{reading.more}</div>}
-                    {reading.loadingMore && <div className="text-[#0E1624]/60">Getting more detail…</div>}
-                    {enhanced && <div className="text-[#0E1624]/60">Boosted for {user.name} (approximate)</div>}
+                    {reading.identifying && <div className="text-[#081838]/60">Identifying…</div>}
+                    {reading.object?.description && <div className="text-[#081838]/75">{reading.object.description}</div>}
+                    {reading.more && <div className="mt-1 text-[#081838]/85">{reading.more}</div>}
+                    {reading.loadingMore && <div className="text-[#081838]/60">Getting more detail…</div>}
+                    {enhanced && <div className="text-[#081838]/60">Boosted for {user.name} (approximate)</div>}
                   </div>
                   <button
                     type="button"
                     onClick={clearSelection}
                     aria-label="Close label"
-                    className="-mr-1 -mt-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-xl leading-none text-[#0E1624]/55 hover:bg-[#0E1624]/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+                    className="-mr-1 -mt-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-xl leading-none text-[#081838]/55 hover:bg-[#081838]/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
                   >
                     <span aria-hidden>✕</span>
                   </button>
@@ -918,7 +918,7 @@ export default function CameraExplorer() {
               type="button"
               onClick={() => setControlsHidden(false)}
               aria-label="Show controls"
-              className="absolute left-3 top-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#0E1624]/60 text-2xl opacity-70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+              className="absolute left-3 top-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#081838]/60 text-2xl opacity-70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
             >
               <span aria-hidden>☰</span>
             </button>
@@ -929,21 +929,21 @@ export default function CameraExplorer() {
             <button
               type="button"
               onClick={() => setControlsHidden(true)}
-              className="min-h-12 rounded-xl bg-[#0E1624]/90 px-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+              className="min-h-12 rounded-2xl bg-[#081838]/70 backdrop-blur-md px-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
             >
               <span aria-hidden>◀ </span>Hide controls
             </button>
             <Link
               href="/"
-              className="flex min-h-12 items-center rounded-xl bg-[#0E1624]/90 px-4 font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+              className="flex min-h-12 items-center rounded-2xl bg-[#081838]/70 backdrop-blur-md px-4 font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
             >
               ← Home
             </Link>
-            <p className="rounded-xl bg-[#0E1624]/80 px-3 py-1 text-base text-white/85">Glasses view · phone preview</p>
+            <p className="rounded-xl bg-[#081838]/80 px-3 py-1 text-base text-white/85">Glasses view · phone preview</p>
             <button
               type="button"
               onClick={() => setUsersOpen(true)}
-              className="min-h-12 rounded-xl border-2 border-[#F5B841] bg-[#0E1624]/95 px-4 text-left font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+              className="min-h-12 rounded-xl border-2 border-[#FBBF24] bg-[#081838]/80 backdrop-blur-md px-4 text-left font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
             >
               <span aria-hidden>👤 </span>
               {user.name} ▾<span className="block text-base font-normal text-white/80">{CVD_LABELS[user.type].short}</span>
@@ -955,11 +955,11 @@ export default function CameraExplorer() {
                 setEnhanced(false);
               }}
               aria-pressed={viewMode === "user"}
-              className="min-h-12 rounded-xl bg-[#0E1624]/90 px-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+              className="min-h-12 rounded-2xl bg-[#081838]/70 backdrop-blur-md px-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
             >
               <span aria-hidden>👁 </span>
               {viewMode === "user" ? "Switch to actual vision" : `Switch to ${user.name}'s vision`}
-              <span className="block text-base text-[#F5B841]">
+              <span className="block text-base text-[#FBBF24]">
                 {viewMode === "user" ? `Now: ${user.name}'s vision (simulation)` : "Now: actual vision"}
               </span>
             </button>
@@ -971,7 +971,7 @@ export default function CameraExplorer() {
               }}
               aria-pressed={pinchOn}
               className={`min-h-12 rounded-xl px-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF] ${
-                pinchOn ? "border-2 border-[#F5B841] bg-[#0E1624]/95" : "bg-[#0E1624]/90"
+                pinchOn ? "border-2 border-[#FBBF24] bg-[#081838]/80 backdrop-blur-md" : "bg-[#081838]/90"
               }`}
             >
               <span aria-hidden>✋ </span>Pinch: {pinchOn ? "On" : "Off"}
@@ -981,7 +981,7 @@ export default function CameraExplorer() {
           )}
 
           {usersOpen && (
-            <div className="absolute inset-0 z-20 overflow-y-auto bg-[#0E1624]/97 px-4 py-8">
+            <div className="absolute inset-0 z-20 overflow-y-auto bg-[#081838]/97 px-4 py-8">
               <UserPanel state={usersState} onChange={changeUsers} onClose={() => setUsersOpen(false)} />
             </div>
           )}
@@ -990,7 +990,7 @@ export default function CameraExplorer() {
             <p
               ref={chipRef}
               role="status"
-              className="pointer-events-none absolute right-4 top-4 max-w-[calc(100vw-15rem)] rounded-xl border border-[#4DA3FF] bg-[#0E1624]/90 px-4 py-3 text-right"
+              className="pointer-events-none absolute right-4 top-4 max-w-[calc(100vw-15rem)] rounded-full border border-[#3B82F6] bg-[#081838]/75 px-4 py-2 text-right text-base backdrop-blur-md"
             >
               {chip}
             </p>
@@ -1002,7 +1002,7 @@ export default function CameraExplorer() {
                 <button
                   type="button"
                   onClick={resume}
-                  className="min-h-12 rounded-xl bg-[#F5B841] px-6 font-semibold text-[#0E1624] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+                  className="min-h-12 rounded-full bg-[#FBBF24] shadow-[0_6px_20px_rgba(251,191,36,0.3)] px-6 font-semibold text-[#081838] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
                 >
                   Tap to resume
                 </button>
@@ -1010,13 +1010,13 @@ export default function CameraExplorer() {
             )
           ) : frozen ? (
             <div ref={bottomRef} className="absolute inset-x-4 bottom-6 flex flex-col items-center gap-3">
-              <p className="pointer-events-none w-fit rounded-xl bg-[#0E1624]/90 px-4 py-2 text-center">
+              <p className="pointer-events-none w-fit rounded-2xl bg-[#081838]/70 backdrop-blur-md px-4 py-2 text-center">
                 Tap another spot to check it.
               </p>
               <button
                 type="button"
                 onClick={resume}
-                className="min-h-12 rounded-xl bg-[#F5B841] px-6 font-semibold text-[#0E1624] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+                className="min-h-12 rounded-full bg-[#FBBF24] shadow-[0_6px_20px_rgba(251,191,36,0.3)] px-6 font-semibold text-[#081838] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
               >
                 Tap to resume
               </button>
@@ -1024,7 +1024,7 @@ export default function CameraExplorer() {
           ) : (
             <p
               ref={hintRef}
-              className="pointer-events-none absolute inset-x-4 bottom-6 mx-auto w-fit rounded-xl bg-[#0E1624]/90 px-4 py-3 text-center">
+              className="pointer-events-none absolute inset-x-4 bottom-6 mx-auto w-fit rounded-2xl bg-[#081838]/70 backdrop-blur-md px-4 py-3 text-center">
               Tap a solid object. Works best on single-color things, not glass, water, or thin parts.
             </p>
           )}
@@ -1043,8 +1043,8 @@ export default function CameraExplorer() {
             }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/icon-192.png" alt="" width={72} height={72} className="mx-auto rounded-2xl" />
-            <h1 className="text-center text-3xl font-semibold">Outlens</h1>
+            <img src="/icon-192.png" alt="" width={104} height={104} className="mx-auto rounded-3xl shadow-[0_0_48px_rgba(59,130,246,0.45)]" />
+            <h1 className="text-center text-4xl font-semibold tracking-tight">Outlens</h1>
             <p className="text-center text-white/80">Sign in to your lens</p>
             <label className="flex flex-col gap-1">
               <span className="font-semibold">Email</span>
@@ -1053,23 +1053,23 @@ export default function CameraExplorer() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="off"
-                className="min-h-12 rounded-lg bg-white px-3 text-[#0E1624]"
+                className="min-h-12 rounded-xl border border-white/30 bg-white/5 px-4 text-white placeholder:text-white/50"
               />
             </label>
             <label className="flex flex-col gap-1">
               <span className="font-semibold">Password</span>
-              <input type="password" defaultValue="demo-password" autoComplete="off" className="min-h-12 rounded-lg bg-white px-3 text-[#0E1624]" />
+              <input type="password" defaultValue="demo-password" autoComplete="off" className="min-h-12 rounded-xl border border-white/30 bg-white/5 px-4 text-white placeholder:text-white/50" />
             </label>
-            <button type="submit" className="min-h-12 rounded-xl bg-[#F5B841] px-6 font-semibold text-[#0E1624]">
+            <button type="submit" className="min-h-12 rounded-full bg-[#FBBF24] shadow-[0_6px_20px_rgba(251,191,36,0.3)] px-6 font-semibold text-[#081838]">
               Sign in
             </button>
-            <div className="flex flex-wrap justify-center gap-x-4">
+            <div className="flex flex-wrap justify-center gap-3">
               {usersState.users.map((u) => (
                 <button
                   key={u.id}
                   type="button"
                   onClick={() => setEmail(`${u.name.toLowerCase()}@outlens.demo`)}
-                  className="min-h-12 text-[#4DA3FF] underline underline-offset-4"
+                  className="min-h-12 rounded-full border border-white/35 px-5 text-white hover:bg-white/10"
                 >
                   Demo: {u.name}
                 </button>
@@ -1105,7 +1105,7 @@ export default function CameraExplorer() {
             <button
               type="button"
               onClick={startCamera}
-              className="min-h-12 rounded-xl bg-[#F5B841] px-6 font-semibold text-[#0E1624] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
+              className="min-h-12 rounded-full bg-[#FBBF24] shadow-[0_6px_20px_rgba(251,191,36,0.3)] px-6 font-semibold text-[#081838] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]"
             >
               {status === "idle" ? "Open the lens" : "Try again"}
             </button>
