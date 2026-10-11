@@ -144,6 +144,58 @@ type Recognizer = {
   stop: () => void;
 };
 
+/** Decorative botanical vine line art (from the design), drawn with thin light strokes. */
+function Vines({ className = "" }: { className?: string }) {
+  const leaf = (x: number, y: number, r: number) => (
+    <path
+      key={`${x}-${y}`}
+      d={`M${x} ${y} q ${9 * Math.cos(r)} ${-9 * Math.sin(r) - 6} ${18 * Math.cos(r)} ${-2 * Math.sin(r)} q ${-9 * Math.cos(r)} ${9 * Math.sin(r) + 4} ${-18 * Math.cos(r)} ${2 * Math.sin(r)} Z`}
+    />
+  );
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 220 260"
+      className={`pointer-events-none absolute -z-10 h-64 w-56 text-white/25 ${className}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+    >
+      <path d="M210 0 C 170 40, 190 80, 150 110 S 90 150, 110 200 S 70 240, 40 258" />
+      <path d="M150 110 C 130 100, 115 80, 120 60" />
+      <path d="M110 200 C 90 190, 70 195, 58 210" />
+      {[
+        [196, 18, 2.6],
+        [176, 52, 0.4],
+        [168, 92, 2.8],
+        [124, 66, 1.2],
+        [132, 132, 0.2],
+        [100, 162, 2.9],
+        [96, 214, 0.5],
+        [66, 206, 2.2],
+        [70, 236, 2.7],
+      ].map(([x, y, r]) => leaf(x, y, r))}
+    </svg>
+  );
+}
+
+/** The Outlens logo from the design: a blue ring with an amber dot. */
+function RingLogo({ size = 96 }: { size?: number }) {
+  return (
+    <span aria-hidden className="relative mx-auto block" style={{ width: size, height: size }}>
+      <span
+        className="absolute inset-0 rounded-full border-[#3B82F6] shadow-[0_0_40px_rgba(59,130,246,0.45)]"
+        style={{ borderWidth: size * 0.11 }}
+      />
+      <span
+        className="absolute rounded-full bg-[#FBBF24]"
+        style={{ width: size * 0.2, height: size * 0.2, right: size * 0.06, top: size * 0.06 }}
+      />
+    </span>
+  );
+}
+
 // Compact action button in the label (still a 48px tap target).
 const ACTION =
   "min-h-12 rounded-full border border-[#3B82F6]/45 bg-white px-3 font-semibold text-[#2563EB] hover:bg-[#3B82F6]/10 aria-pressed:bg-[#3B82F6]/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4DA3FF]";
@@ -1032,7 +1084,9 @@ export default function CameraExplorer() {
       )}
 
       {!live && !signedIn && (
-        <main className="flex h-full flex-col items-center justify-center overflow-y-auto px-6 py-8">
+        <main className="relative isolate flex h-full flex-col items-center justify-center overflow-hidden overflow-y-auto px-6 py-8">
+          <Vines className="-right-6 -top-4" />
+          <Vines className="-bottom-6 -left-6 rotate-180" />
           <form
             className="flex w-full max-w-sm flex-col gap-4"
             onSubmit={(e) => {
@@ -1042,23 +1096,24 @@ export default function CameraExplorer() {
               setSignedIn(true);
             }}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/icon-192.png" alt="" width={104} height={104} className="mx-auto rounded-3xl shadow-[0_0_48px_rgba(59,130,246,0.45)]" />
+            <RingLogo size={96} />
             <h1 className="text-center text-4xl font-semibold tracking-tight">Outlens</h1>
             <p className="text-center text-white/80">Sign in to your lens</p>
-            <label className="flex flex-col gap-1">
-              <span className="font-semibold">Email</span>
+            <label className="relative flex flex-col gap-1">
+              <span className="sr-only">Email</span>
+              <span aria-hidden className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-white/70">✉</span>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="off"
-                className="min-h-12 rounded-xl border border-white/30 bg-white/5 px-4 text-white placeholder:text-white/50"
+                className="min-h-12 rounded-xl border border-white/30 bg-white/5 pl-11 pr-4 text-white placeholder:text-white/50"
               />
             </label>
-            <label className="flex flex-col gap-1">
-              <span className="font-semibold">Password</span>
-              <input type="password" defaultValue="demo-password" autoComplete="off" className="min-h-12 rounded-xl border border-white/30 bg-white/5 px-4 text-white placeholder:text-white/50" />
+            <label className="relative flex flex-col gap-1">
+              <span className="sr-only">Password</span>
+              <span aria-hidden className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-white/70">🔒</span>
+              <input type="password" defaultValue="demo-password" autoComplete="off" className="min-h-12 rounded-xl border border-white/30 bg-white/5 pl-11 pr-4 text-white placeholder:text-white/50" />
             </label>
             <button type="submit" className="min-h-12 rounded-full bg-[#FBBF24] shadow-[0_6px_20px_rgba(251,191,36,0.3)] px-6 font-semibold text-[#081838]">
               Sign in
@@ -1083,17 +1138,17 @@ export default function CameraExplorer() {
       )}
 
       {!live && signedIn && usersOpen && (
-        <main className="flex h-full flex-col items-center overflow-y-auto px-4 py-8">
+        <main className="relative isolate flex h-full flex-col items-center overflow-hidden overflow-y-auto px-4 py-8">
+          <Vines className="-right-8 -top-6 opacity-60" />
           <UserPanel state={usersState} onChange={changeUsers} onClose={() => setUsersOpen(false)} />
         </main>
       )}
 
       {!live && signedIn && !usersOpen && (
-        <main className="flex h-full flex-col items-center justify-center gap-6 overflow-y-auto px-6 py-8 text-center">
-          {!message && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src="/icon-192.png" alt="" width={96} height={96} className="rounded-3xl shadow-[0_0_40px_rgba(77,163,255,0.45)]" />
-          )}
+        <main className="relative isolate flex h-full flex-col items-center justify-center gap-6 overflow-hidden overflow-y-auto px-6 py-8 text-center">
+          <Vines className="-right-6 -top-4" />
+          <Vines className="-bottom-6 -left-6 rotate-180" />
+          {!message && <RingLogo size={88} />}
           <h1 className="text-3xl font-semibold">{message?.title ?? "Put on your lens"}</h1>
           <p className="max-w-md leading-relaxed text-white/85">
             {status === "starting"
