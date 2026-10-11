@@ -1118,18 +1118,6 @@ export default function CameraExplorer() {
             <button type="submit" className="min-h-12 rounded-full bg-[#FBBF24] shadow-[0_6px_20px_rgba(251,191,36,0.3)] px-6 font-semibold text-[#081838]">
               Sign in
             </button>
-            <div className="flex flex-wrap justify-center gap-3">
-              {usersState.users.map((u) => (
-                <button
-                  key={u.id}
-                  type="button"
-                  onClick={() => setEmail(`${u.name.toLowerCase()}@outlens.demo`)}
-                  className="min-h-12 rounded-full border border-white/35 px-5 text-white hover:bg-white/10"
-                >
-                  Demo: {u.name}
-                </button>
-              ))}
-            </div>
             <p className="text-center text-base text-white/70">
               Demo sign-in: no account is created, and nothing you type is stored or sent.
             </p>
