@@ -6,14 +6,41 @@
 // yet, the browser voice speaks right away instead, inside the same tap.
 
 const ready = new Map<string, string>(); // phrase -> object URL of its audio
-const pending = new Set<string>();
+const pending = new Map<string, Promise<void>>();
 let current: HTMLAudioElement | null = null;
+// One audio element, unlocked during a tap, so later replies (after voice commands) may play.
+let shared: HTMLAudioElement | null = null;
+const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+
+/**
+ * Call inside a tap (e.g. the 🎤 button). Phones only allow sound to start in a tap; this
+ * starts a silent sound and a silent utterance so replies a few seconds later can be heard.
+ */
+export function unlockAudio() {
+  try {
+    shared ??= new Audio();
+    shared.src = SILENT_WAV;
+    shared.play().catch(() => {});
+  } catch {
+    // ignore
+  }
+  try {
+    if ("speechSynthesis" in window) {
+      const u = new SpeechSynthesisUtterance(" ");
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+    }
+  } catch {
+    // ignore
+  }
+}
 
 /** Starts fetching ElevenLabs audio for a phrase, once. Failures are fine: speech falls back. */
-export function prepareSpeech(phrase: string) {
-  if (ready.has(phrase) || pending.has(phrase)) return;
-  pending.add(phrase);
-  fetch("/api/speak", {
+export function prepareSpeech(phrase: string): Promise<void> {
+  if (ready.has(phrase)) return Promise.resolve();
+  const existing = pending.get(phrase);
+  if (existing) return existing;
+  const job = fetch("/api/speak", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text: phrase }),
@@ -24,6 +51,30 @@ export function prepareSpeech(phrase: string) {
     })
     .catch((err) => console.info("ElevenLabs voice not available, using browser voice.", err))
     .finally(() => pending.delete(phrase));
+  pending.set(phrase, job);
+  return job;
+}
+
+function playUrl(url: string, phrase: string) {
+  const audio = shared ?? new Audio();
+  current = audio;
+  audio.src = url;
+  audio.play().catch(() => browserSpeak(phrase));
+}
+
+/**
+ * For replies that come after a voice command (not right inside a tap): waits briefly for
+ * ElevenLabs audio, then plays it on the unlocked element; otherwise uses the browser voice.
+ * Phrases the voice route doesn't allow go straight to the browser voice.
+ */
+export async function speakReply(phrase: string, waitMs = 3000) {
+  stopAll();
+  if (!ready.has(phrase) && /^(?:[A-Z][a-z -]{0,29}\. )?Estimated color: [a-z][a-z -]{0,40}\.$/.test(phrase)) {
+    await Promise.race([prepareSpeech(phrase), new Promise((r) => setTimeout(r, waitMs))]);
+  }
+  const url = ready.get(phrase);
+  if (url) playUrl(url, phrase);
+  else browserSpeak(phrase);
 }
 
 function stopAll() {
@@ -49,12 +100,10 @@ export function speak(phrases: string[]): boolean {
   for (const phrase of phrases) {
     const url = ready.get(phrase);
     if (!url) continue;
-    const audio = new Audio(url);
-    current = audio;
-    audio.play().catch(() => browserSpeak(phrase));
+    playUrl(url, phrase);
     return true;
   }
-  phrases.forEach(prepareSpeech); // so the next Listen can use ElevenLabs
+  phrases.forEach((p) => prepareSpeech(p)); // so the next Listen can use ElevenLabs
   return browserSpeak(phrases[0]);
 }
 

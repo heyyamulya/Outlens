@@ -10,7 +10,7 @@ import { outlineFromMask, type Frame, type OutlineResult, type Point } from "@/l
 // lib/segmenter.ts is switched off: in 1.0.1 its GPU mode returned empty masks and its
 // CPU mode took about 12 s per tap on a laptop.
 import { colorMaskAt } from "@/lib/colorRegion";
-import { colorPhrase, prepareSpeech, speak } from "@/lib/speak";
+import { colorPhrase, prepareSpeech, speak, speakReply, unlockAudio } from "@/lib/speak";
 import { cropAround, describeCrop, type ObjectInfo } from "@/lib/crop";
 import { CVD_LABELS, SIMULATION, applyMatrix, enhancementMatrix, multiply, svgMatrixValues, type CvdType } from "@/lib/cvd";
 import { createSimRenderer } from "@/lib/simGl";
@@ -651,6 +651,11 @@ export default function CameraExplorer() {
     voiceTimerRef.current = setTimeout(() => setVoiceMsg(null), ms);
   }
 
+  /** Speaks a reply once the microphone has closed (phones mute speech while it's open). */
+  function reply(phrase: string) {
+    setTimeout(() => speakReply(phrase), 500);
+  }
+
   /** Hands-free: estimate the color at the center of the view (where you're looking) and say it. */
   function describeCenter() {
     const video = videoRef.current;
@@ -672,7 +677,7 @@ export default function CameraExplorer() {
       return;
     }
     flash(`Center of view · ${estimate.label}`, 6000);
-    speak([colorPhrase(estimate.name)]);
+    reply(colorPhrase(estimate.name));
   }
 
   /** Carries out a spoken command (see lib/voiceCommand.ts). */
@@ -685,7 +690,7 @@ export default function CameraExplorer() {
     flash(`Heard “${text}”`);
     if (command === "traffic") {
       flash("Traffic lights: use position (top is stop, bottom is go) and walk signals.", 7000);
-      speak([TRAFFIC_REPLY]);
+      reply(TRAFFIC_REPLY);
       return;
     }
     if (command === "describe" && !reading) {
@@ -697,8 +702,7 @@ export default function CameraExplorer() {
       flash("Tap or pinch an object first.");
       return;
     }
-    if (command === "describe" && reading)
-      speak([colorPhrase(reading.estimate.name, reading.object?.name), colorPhrase(reading.estimate.name)]);
+    if (command === "describe" && reading) reply(colorPhrase(reading.estimate.name, reading.object?.name));
     if (command === "boost" && !enhanced && !reading?.identifying) toggleEnhanced();
     if (command === "unboost" && enhanced) toggleEnhanced();
     if (command === "actual") {
@@ -720,6 +724,7 @@ export default function CameraExplorer() {
 
   /** "Ask": listen for one short spoken command. */
   function ask() {
+    unlockAudio(); // inside the tap, so the spoken reply is allowed later
     if (listening) {
       recognizerRef.current?.stop();
       return;
