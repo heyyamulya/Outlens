@@ -15,6 +15,9 @@ const cases = [
   ["resume", "resume"],
   ["close", "close"],
   ["banana", null],
+  ["is the light green or red", "traffic"],
+  ["is the traffic signal green", "traffic"],
+  ["can I cross the street", "traffic"],
 ];
 for (const [text, want] of cases) {
   const got = parseCommand(text, "Maya");

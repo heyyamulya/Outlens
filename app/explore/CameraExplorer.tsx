@@ -15,7 +15,7 @@ import { cropAround, describeCrop, type ObjectInfo } from "@/lib/crop";
 import { CVD_LABELS, SIMULATION, applyMatrix, enhancementMatrix, multiply, svgMatrixValues, type CvdType } from "@/lib/cvd";
 import { createSimRenderer } from "@/lib/simGl";
 import { loadHands, readHand } from "@/lib/pinch";
-import { parseCommand } from "@/lib/voiceCommand";
+import { TRAFFIC_REPLY, parseCommand } from "@/lib/voiceCommand";
 import { DEFAULT_USERS_JSON, activeUser, addUser, parseUsers, saveUsers, subscribeUsers, usersSnapshot, type UsersState } from "@/lib/profile";
 
 type Status = "idle" | "starting" | "live" | "denied" | "no-camera" | "busy" | "unsupported" | "error";
@@ -651,6 +651,30 @@ export default function CameraExplorer() {
     voiceTimerRef.current = setTimeout(() => setVoiceMsg(null), ms);
   }
 
+  /** Hands-free: estimate the color at the center of the view (where you're looking) and say it. */
+  function describeCenter() {
+    const video = videoRef.current;
+    const source = frameRef.current ? frameCanvasRef.current : video;
+    if (!source || !video?.videoWidth) {
+      flash("The camera isn't ready yet.");
+      return;
+    }
+    let canvas = source as HTMLCanvasElement;
+    if (source instanceof HTMLVideoElement) {
+      canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d")?.drawImage(video, 0, 0);
+    }
+    const estimate = sampleCircle(canvas, { x: canvas.width / 2, y: canvas.height / 2 }, sampleCanvasRef);
+    if (!estimate) {
+      flash("Couldn't read a color there.");
+      return;
+    }
+    flash(`Center of view · ${estimate.label}`, 6000);
+    speak([colorPhrase(estimate.name)]);
+  }
+
   /** Carries out a spoken command (see lib/voiceCommand.ts). */
   function runCommand(text: string) {
     const command = parseCommand(text, user.name);
@@ -659,7 +683,16 @@ export default function CameraExplorer() {
       return;
     }
     flash(`Heard “${text}”`);
-    const needsObject = ["describe", "boost", "unboost", "more", "close"].includes(command);
+    if (command === "traffic") {
+      flash("Traffic lights: use position (top is stop, bottom is go) and walk signals.", 7000);
+      speak([TRAFFIC_REPLY]);
+      return;
+    }
+    if (command === "describe" && !reading) {
+      describeCenter();
+      return;
+    }
+    const needsObject = ["boost", "unboost", "more", "close"].includes(command);
     if (needsObject && !reading) {
       flash("Tap or pinch an object first.");
       return;
@@ -711,7 +744,7 @@ export default function CameraExplorer() {
     rec.onend = () => setListening(false);
     recognizerRef.current = rec;
     setListening(true);
-    setVoiceMsg("Listening… try “What is this?”");
+    setVoiceMsg("Listening… try “What color is this?”");
     try {
       rec.start();
     } catch {
@@ -781,6 +814,12 @@ export default function CameraExplorer() {
             style={{ display: "none" }}
             className="pointer-events-none fixed z-10 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#F5B841] shadow-[0_0_0_2px_rgba(14,22,36,0.7)]"
           />
+          {listening && (
+            <div aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 h-8 w-8 -translate-x-1/2 -translate-y-1/2">
+              <span className="absolute left-1/2 top-0 h-8 w-[3px] -translate-x-1/2 rounded bg-white shadow-[0_0_0_1.5px_rgba(14,22,36,0.7)]" />
+              <span className="absolute left-0 top-1/2 h-[3px] w-8 -translate-y-1/2 rounded bg-white shadow-[0_0_0_1.5px_rgba(14,22,36,0.7)]" />
+            </div>
+          )}
           {/* Ask: tap, then say a short command. */}
           <button
             ref={micRef}
